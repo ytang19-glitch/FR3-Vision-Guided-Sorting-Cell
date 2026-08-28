@@ -10,3 +10,5 @@ a  approach for learning skills without manually engineered rewards
 
 
 Physical Object Understanding with a Physically Controllable World Model
+
+Building computational models that exhibit similar capabilities—learning about objects and their physics through vision and interaction 
