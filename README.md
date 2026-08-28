@@ -2,6 +2,8 @@
 
 A step-by-step ROS 2 project for building a vision-guided sorting cell with a **Franka Research 3 (FR3)**, **MoveItPy**, **Gazebo**, and an **Intel RealSense RGB-D camera**.
 
+> **Docker users:** Follow the [step-by-step Docker setup tutorial](DOCKER_SETUP.md) to build the ROS 2 Jazzy, MoveIt, Gazebo and RealSense environment.
+
 The finished system observes three objects on a table, identifies each object, calculates its 3D position, transforms that position into the robot base frame, and commands the FR3 to place the object into the corresponding container.
 
 > This project should be completed in simulation before connecting to the real robot. Start with simple color-based OpenCV detection. Add YOLO only after the complete RGB-D and robot-control pipeline works reliably.
