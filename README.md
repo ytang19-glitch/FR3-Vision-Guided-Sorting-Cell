@@ -246,18 +246,54 @@ Do not move the real FR3 in the first experiment. First verify the complete came
 
 ### 1. Check the camera on the Ubuntu host
 
+Connect the RealSense and run:
+
+```bash
+lsusb | grep -Ei 'intel|realsense|8086'
+```
+
+The camera used for this experiment has now been detected successfully:
+
+```text
+ID 8086:0b5b Intel Corp. Intel(R) RealSense(TM) Depth Camera 405
+```
+
+The bus and device numbers, such as `Bus 001 Device 002`, may change after reconnecting the camera. The stable identifier is the USB ID `8086:0b5b`.
+
+Optional live USB monitoring:
+
 ```bash
 watch -n 1 lsusb
 ```
 
-Reconnect the RealSense and look for a new device. Then run:
+Next, confirm that Docker can access the same device:
 
 ```bash
+cd ~/fr3_vision_sorting
+docker compose up -d
+docker exec -it fr3_vision_sorting bash
 lsusb | grep -Ei 'intel|realsense|8086'
+```
+
+Expected result inside Docker:
+
+```text
+Intel(R) RealSense(TM) Depth Camera 405
+```
+
+Inspect the camera through librealsense:
+
+```bash
 rs-enumerate-devices
 ```
 
-If the host cannot detect the camera, Docker cannot detect it.
+If the D405 appears on the host but not inside Docker, check that `compose.yaml` includes:
+
+```yaml
+privileged: true
+volumes:
+  - /dev/bus/usb:/dev/bus/usb
+```
 
 ### 2. Start the RealSense ROS node
 
