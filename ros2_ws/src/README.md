@@ -112,8 +112,38 @@ Exit Docker:
 ```bash
 exit
 ```
-
 Then run on Ubuntu:
+
+if: GitHub no longer accepts your normal GitHub password for Git operations over HTTPS.
+
+If authentication is required, use GitHub CLI:
+
+```bash
+gh auth login
+```
+
+Choose:
+
+```text
+GitHub.com
+↓
+HTTPS
+↓
+Login with a web browser
+```
+
+GitHub CLI will display a one-time code.
+
+Press:
+
+```text
+Enter
+```
+Your browser will open.
+
+Log into the correct GitHub account and approve access.
+
+Then:
 
 ```bash
 cd ~/fr3_vision_sorting
