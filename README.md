@@ -333,6 +333,13 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 
 ### 4. View RGB and point-cloud data
 
+Verify the installation of rqt-image-view 
+```bash
+dpkg -l | grep ros-jazzy-rqt-image-view
+ros2 pkg prefix rqt_image_view
+ros2 run rqt_image_view rqt_image_view
+```
+
 ```bash
 rqt_image_view
 ```
