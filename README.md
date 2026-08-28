@@ -211,7 +211,7 @@ Therefore, source code remains on the host even if the container is recreated.
 
 Use this method only when ROS 2 Jazzy and the required Franka packages are already installed directly on Ubuntu 24.04.
 
-➡️ **[Open the detailed ROS 2 workspace and package creation guide](ros2_ws/src/README.md)**
+> [Build Your ROS 2 Workspace and Package](ros2_ws/src/README.md)
 
 ```bash
 mkdir -p ~/franka_ros2_ws/src
