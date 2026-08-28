@@ -6,3 +6,7 @@ https://arxiv.org/abs/1904.07854
 ```
 This paper introduce a method removing the need for manual engineering of reward specifications
 a  approach for learning skills without manually engineered rewards
+
+
+
+Physical Object Understanding with a Physically Controllable World Model
