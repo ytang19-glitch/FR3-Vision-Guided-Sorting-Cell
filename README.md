@@ -13,6 +13,37 @@ The target system detects red, green, and blue objects on a table, estimates eac
 
 > **Current status:** the Docker development environment and full implementation roadmap are available. The perception, calibration, simulation, and automatic sorting nodes will be added incrementally and validated one stage at a time.
 
+## Quick start with Docker
+
+Run the following commands in an **Ubuntu host terminal**:
+
+```bash
+cd ~
+
+git clone https://github.com/ytang19-glitch/FR3-Vision-Guided-Sorting-Cell.git fr3_vision_sorting
+
+cd ~/fr3_vision_sorting
+```
+
+The last argument in the `git clone` command creates a local folder named `fr3_vision_sorting`. It is a folder on your computer, not another folder shown inside the GitHub repository.
+
+Then build and start the environment:
+
+```bash
+xhost +local:docker
+docker compose build
+docker compose up -d
+docker exec -it fr3_vision_sorting bash
+```
+
+After entering the container, the repository is available at:
+
+```text
+/workspace
+```
+
+For the complete explanation, see [DOCKER_SETUP.md](DOCKER_SETUP.md).
+
 ## Project overview
 
 This experiment connects the complete industrial robotics pipeline:
