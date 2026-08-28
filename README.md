@@ -331,36 +331,97 @@ ros2 topic hz /camera/camera/color/image_raw
 ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 ```
 
-### 4. View RGB and point-cloud data
+### 4. View RGB, aligned depth, and point-cloud data
 
-Verify the installation of rqt-image-view 
+Keep the RealSense launch command running in the first terminal. Open a second terminal and enter the container:
+
+```bash
+docker exec -it fr3_vision_sorting bash
+source /opt/ros/jazzy/setup.bash
+```
+
+#### 4.1 Verify `rqt_image_view`
+
 ```bash
 dpkg -l | grep ros-jazzy-rqt-image-view
 ros2 pkg prefix rqt_image_view
+```
+
+If the package is missing, install it:
+
+```bash
+apt-get update
+apt-get install -y ros-jazzy-rqt-image-view
+source /opt/ros/jazzy/setup.bash
+```
+
+#### 4.2 View the RGB image
+
+First confirm that RGB images are arriving:
+
+```bash
+ros2 topic hz /camera/camera/color/image_raw
+```
+
+Then open the viewer:
+
+```bash
 ros2 run rqt_image_view rqt_image_view
 ```
 
-```bash
-rqt_image_view
+In the upper-left topic menu:
+
+1. Click the blue refresh button.
+2. Open the topic dropdown.
+3. Select:
+
+```text
+/camera/camera/color/image_raw
 ```
 
-Select `/camera/camera/color/image_raw`.
+A black window normally means that no image topic has been selected or that the RealSense launch process is no longer running.
 
-For the point cloud:
+#### 4.3 View the aligned depth image
+
+In the same topic menu, select:
+
+```text
+/camera/camera/aligned_depth_to_color/image_raw
+```
+
+Enable **Dynamic depth range** if the depth image appears mostly black.
+
+#### 4.4 View the 3D point cloud
+
+Start RViz:
 
 ```bash
 rviz2
 ```
 
-Set the Fixed Frame to `camera_link`, add a `PointCloud2` display, and select `/camera/camera/depth/color/points`.
+Configure RViz:
+
+1. Set **Fixed Frame** to `camera_link`.
+2. Click **Add** and choose **PointCloud2**.
+3. Set the PointCloud2 topic to:
+
+```text
+/camera/camera/depth/color/points
+```
+
+If RViz reports a TF error, inspect the camera frames:
+
+```bash
+ros2 run tf2_tools view_frames
+```
 
 ### First-experiment success condition
 
 ```text
-RealSense
-  → ROS 2 RGB image
-  → aligned depth image
-  → 3D point cloud in RViz
+RealSense D405 detected
+  → RGB image visible in rqt_image_view
+  → aligned depth image visible
+  → 3D point cloud visible in RViz
 ```
 
 ## System workflow
