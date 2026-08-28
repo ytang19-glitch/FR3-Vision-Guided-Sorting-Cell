@@ -5,3 +5,4 @@ must specify the goal of the task by means of a manually programmed reward funct
 https://arxiv.org/abs/1904.07854
 ```
 This paper introduce a method removing the need for manual engineering of reward specifications
+a  approach for learning skills without manually engineered rewards
