@@ -30,6 +30,16 @@ You do not tell the robot with words. You show the robot what to do once.
 (4) Robot watches the example
 (5) Robot tries the same task
 ```
+### Physical prompting versus training:
 
+Training:
+```bash
+Training > Show hundreds of examples > Change model weights
+```
 
+Physical prompting:
+```bash
+Physical prompting > Show hundreds of examples >  Show one short example > No weight change > Robot acts immediately
+
+```
 
