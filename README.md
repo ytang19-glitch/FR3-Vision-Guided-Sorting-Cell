@@ -443,6 +443,12 @@ RealSense D405 detected
 - Visualize the robot in RViz before adding the environment.
 
 ```bash
+ros2 launch franka_fr3_moveit_config moveit.launch.py \
+  robot_ip:=dont-care \
+  use_fake_hardware:=true
+```
+
+```bash
 ros2 pkg prefix franka_description
 ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
 ```
