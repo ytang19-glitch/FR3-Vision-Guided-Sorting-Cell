@@ -442,6 +442,9 @@ RealSense D405 detected
 - Verify `fr3_link0`, `fr3_hand_tcp`, joint states, and the TF tree.
 - Visualize the robot in RViz before adding the environment.
 
+```build the docker
+docker compose up
+```
 ```bash
 source /opt/ros/jazzy/setup.bash
 source /opt/franka_ros2_ws/install/setup.bash
