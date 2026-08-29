@@ -449,7 +449,11 @@ docker compose up
 source /opt/ros/jazzy/setup.bash
 source /opt/franka_ros2_ws/install/setup.bash
 ```
-
+allow docker demonstrate the window
+```bash
+echo $DISPLAY
+xhost +local:docker
+```
 
 ```bash
 ros2 launch franka_fr3_moveit_config moveit.launch.py \
