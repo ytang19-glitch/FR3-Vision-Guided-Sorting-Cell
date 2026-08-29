@@ -446,6 +446,31 @@ RealSense D405 detected
 ros2 pkg prefix franka_description
 ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
 ```
+### Before Moving the Real FR3
+
+1. Check Franka Desk
+```bash
+Make sure:
+
+Control Box Connected
+        ↓
+Robot Unlocked
+        ↓
+FCI Enabled
+        ↓
+Robot Ready
+```
+2. Check ROS 2 Controller
+```bash
+ros2 control list_controllers
+```
+The arm controller should be:
+```bash
+active
+```
+Only start motion when Franka Desk + FCI + ROS 2 controller are ready.
+
+
 
 ### Stage 2 — Fixed-coordinate motion
 
