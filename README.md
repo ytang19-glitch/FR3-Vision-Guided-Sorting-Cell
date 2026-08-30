@@ -50,7 +50,7 @@ This experiment connects the complete industrial robotics pipeline:
 
 ```mermaid
 flowchart TD
-    A["Gazebo RGB-D camera or RealSense"] --> B["OpenCV or YOLO detection"]
+    A["Gazebo Intel Realsense camera or RealSense"] --> B["OpenCV or YOLO detection"]
     B --> C["Depth-based 3D position"]
     C --> D["TF2: camera to fr3_link0"]
     D --> E["MoveItPy planning"]
