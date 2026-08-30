@@ -513,6 +513,73 @@ Before vision, command a known target pose:
 Object position in fr3_link0: [0.45, 0.10, 0.03] m
 ```
 
+#### Quick Command Reference
+Terminal 1 — MoveIt
+```bash
+docker exec -it fr3_vision_sorting bash
+
+source /opt/ros/jazzy/setup.bash
+source /opt/franka_ros2_ws/install/setup.bash
+
+ros2 launch franka_fr3_moveit_config moveit.launch.py \
+  robot_ip:=dont-care \
+  use_fake_hardware:=true
+```
+#### Terminal 2 — Record Poses
+docker exec -it fr3_vision_sorting bash
+```
+source /opt/ros/jazzy/setup.bash
+source /opt/franka_ros2_ws/install/setup.bash
+
+ros2 topic list | grep joint_states
+ros2 topic hz /joint_states
+
+mkdir -p /workspace/config
+
+ros2 topic echo /joint_states --once \
+  > /workspace/config/home_joint_state.yaml
+
+ros2 topic echo /joint_states --once \
+  > /workspace/config/pre_grasp_joint_state.yaml
+```
+
+Check:
+```bash
+ls -lh /workspace/config
+Build Your Package
+cd /workspace/ros2_ws
+```
+```bash
+source /opt/ros/jazzy/setup.bash
+source /opt/franka_ros2_ws/install/setup.bash
+```
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```bash
+
+Key Principle:
+
+Always develop in this order:
+```bash
+Simple
+  ↓
+Repeatable
+  ↓
+Safe
+  ↓
+Fake Hardware
+  ↓
+Real Hardware
+  ↓
+Vision
+  ↓
+Autonomous Operation
+```
+Never test a new motion for the first time at full speed on the real FR3.
+
+
+
 Complete:
 
 ```text
