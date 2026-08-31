@@ -41,5 +41,12 @@ Physical prompting:
 ```bash
 Physical prompting > Show hundreds of examples >  Show one short example > No weight change > Robot acts immediately
 
+---
+
+### Computer vision:
+
+```BASH
+https://visionbook.mit.edu/simplesystem.html
+```
 ```
 
