@@ -21,7 +21,9 @@ HOME
 ```
 
 Validate each new action separately.
-
+```bash
+ros2 run fr3_vision_sorting fixed_grasp_demo
+```
 Do not add RealSense coordinates yet.
 
 ---
