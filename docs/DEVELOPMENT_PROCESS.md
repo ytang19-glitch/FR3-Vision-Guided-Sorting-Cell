@@ -24,33 +24,6 @@ Follow the stages in order. Do not begin vision-guided motion until fixed-coordi
 
 ---
 
-## Project Structure
-
-The project should have the following structure:
-
-```text
-fr3_vision_sorting/
-├── Dockerfile
-├── compose.yaml
-├── start_container.sh
-├── README.md
-├── docs/
-│   └── DEVELOPMENT_PROCESS.md
-└── ros2_ws/
-    └── src/
-        └── fr3_vision_sorting/
-            ├── package.xml
-            ├── setup.py
-            ├── setup.cfg
-            ├── resource/
-            │   └── fr3_vision_sorting
-            ├── config/
-            │   ├── home_joint_state.yaml
-            │   └── pre_grasp_joint_state.yaml
-            └── fr3_vision_sorting/
-                ├── __init__.py
-                └── fixed_pose_demo.py
-```
 
 The official Franka packages are installed separately:
 
