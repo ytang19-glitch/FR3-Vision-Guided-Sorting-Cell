@@ -42,7 +42,7 @@ Physical prompting:
 Physical prompting > Show hundreds of examples >  Show one short example > No weight change > Robot acts immediately
 
 ---
-
+```
 ### Computer vision:
 
 ```BASH
