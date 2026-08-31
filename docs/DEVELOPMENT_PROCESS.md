@@ -588,45 +588,7 @@ EXECUTE
 
 ---
 
-## Stage 2 Success Criteria
-
-Repeat:
-
-```text
-HOME → PRE_GRASP → HOME
-```
-
-at least ten times.
-
-Record:
-
-| Cycle | HOME | PRE_GRASP | Return HOME | Errors |
-|---:|:---:|:---:|:---:|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
-| 6 |  |  |  |  |
-| 7 |  |  |  |  |
-| 8 |  |  |  |  |
-| 9 |  |  |  |  |
-| 10 |  |  |  |  |
-
-Stage 2 is complete when:
-
-```text
-10/10 cycles successful
-No collision
-No controller error
-No emergency stop
-No unexpected joint rotation
-Repeatable final positions
-```
-
----
-
-# Stage 3 — Fixed-Position Grasping
+# Stage 2 — Fixed-Position Grasping
 
 Only begin after Stage 2 passes.
 
