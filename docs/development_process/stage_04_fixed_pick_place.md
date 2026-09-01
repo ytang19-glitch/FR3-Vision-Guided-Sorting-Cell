@@ -503,6 +503,9 @@ If the robot stops while holding the object:
 4. Place the object on a supported surface before opening the gripper.
 5. Return HOME only after clearing the table and container.
 
+
+### Find exact width or relevant data:
+
 Open the gripper only when the object is supported:
 
 ```bash
@@ -515,6 +518,19 @@ Close the gripper and test if that is right position:
 ```bash
 ros2 action send_goal   /franka_gripper/grasp   franka_msgs/action/Grasp   "{width: 0.039, speed: 0.02, force: 10.0, epsilon: {inner: 0.08, outer: 0.008}}"   --feedback
 ```
+Rebuild it:
+```bash
+cd /workspace/ros2_ws
+
+source /opt/ros/jazzy/setup.bash
+source /opt/franka_ros2_ws/install/setup.bash
+
+colcon build --symlink-install \
+  --packages-select fr3_vision_sorting
+
+source install/setup.bash
+```
+Quaternions:
 
 While:
 ```bash
@@ -524,10 +540,19 @@ Means:
 ```bash
 “What is the current pose of fr3_hand_tcp expressed in fr3_link0?”
 ```
+Expected output:
 
-
-
-
+```bash
+- Translation: [0.426, 0.299, 0.192]
+- Rotation: in Quaternion (xyzw) [-0.026, 0.999, -0.031, -0.016]
+- Rotation: in RPY (radian) [-3.080, -0.033, -3.091]
+- Rotation: in RPY (degree) [-176.473, -1.893, -177.115]
+- Matrix:
+ -0.998 -0.052 -0.030  0.426
+ -0.050  0.997 -0.063  0.299
+  0.033 -0.061 -0.998  0.192
+  0.000  0.000  0.000  1.000
+```
 
 ## Planning Scene limitation
 
