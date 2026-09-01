@@ -511,6 +511,12 @@ ros2 action send_goal \
   franka_msgs/action/Move \
   "{width: 0.08, speed: 0.02}"
 ```
+Close the gripper and test if that is right position:
+```bash
+ros2 action send_goal   /franka_gripper/grasp   franka_msgs/action/Grasp   "{width: 0.039, speed: 0.02, force: 10.0, epsilon: {inner: 0.08, outer: 0.008}}"   --feedback
+```
+
+
 
 ## Planning Scene limitation
 
