@@ -203,16 +203,37 @@ unless you intentionally want to redefine HOME.
 
 ## 3. Move existing Stage 4 bin files into the correct folder
 
-If the three bin YAML files were initially recorded directly under `config/`,
-move them into `config/fixed_pick_place/`:
+If your current directory looks like this:
+
+```text
+config/
+├── bin_joint_state.yaml
+├── post_bin_joint_state.yaml
+├── pre_bin_joint_state.yaml
+├── fixed_grasp/
+└── fixed_pick_place/
+```
+
+the three bin pose files are one level too high. Move them into
+`config/fixed_pick_place/`:
 
 ```bash
 cd /workspace/ros2_ws/src/fr3_vision_sorting/config
 
-mv pre_bin_joint_state.yaml fixed_pick_place/
-mv bin_joint_state.yaml fixed_pick_place/
-mv post_bin_joint_state.yaml fixed_pick_place/
+mv -v pre_bin_joint_state.yaml fixed_pick_place/
+mv -v bin_joint_state.yaml fixed_pick_place/
+mv -v post_bin_joint_state.yaml fixed_pick_place/
 ```
+
+Do not move or duplicate `home_joint_state.yaml`. The shared HOME pose must
+remain here:
+
+```text
+config/fixed_grasp/home_joint_state.yaml
+```
+
+Both `fixed_grasp_demo.py` and `fixed_pick_place_demo.py` reuse this HOME
+file. If it does not exist yet, record it as described in the previous section.
 
 After moving them, verify the layout:
 
