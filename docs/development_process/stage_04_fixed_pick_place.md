@@ -1,9 +1,12 @@
 # Stage 4 — Fixed-Position Pick and Place
 
-> Attention:Stage 4 extends the successful Stage 3 grasping sequence. It does not duplicate the Stage 3 pose files.
-> Reusing Stage 3 Configuration
+> **Attention:** Stage 4 extends the successful Stage 3 grasping sequence. It does **not** duplicate the Stage 3 pose files.
 
-The following poses are shared with Stage 3:
+Stage 4 reuses the validated Stage 3 grasp poses and adds only the three bin-related poses required for placement.
+
+## Reusing Stage 3 configuration
+
+The following poses are shared directly with Stage 3 and remain in `config/fixed_grasp/`:
 
 | Pose | Configuration file | Purpose |
 |---|---|---|
@@ -18,8 +21,7 @@ Stage 4 also reuses the tested gripper parameters:
 GRASP_WIDTH = 0.039  # metres
 GRASP_SPEED = 0.02   # metres per second
 GRASP_FORCE = 10.0   # newtons
-
-
+```
 
 Stage 4 extends the successful fixed grasp from Stage 3 by carrying the object
 to a known container and releasing it.
@@ -36,7 +38,7 @@ HOME → PRE_GRASP → OPEN → GRASP → CLOSE → LIFT
      → PRE_BIN → BIN → RELEASE → POST_BIN → HOME
 ```
 
-Three bin-related poses are used instead of one:
+Three new bin-related poses are introduced in Stage 4:
 
 | Pose | Meaning |
 |---|---|
@@ -71,20 +73,40 @@ Outer epsilon: 0.005 m
 These values are object-specific. Measure and validate them again when the
 object, finger geometry, grasp location, or orientation changes.
 
-## Required files
+## Required pose-file layout
 
-The completed ROS 2 package should contain:
+The pose files should be organized by stage responsibility:
+
+```text
+ros2_ws/src/fr3_vision_sorting/config/
+├── fixed_grasp/
+│   ├── home_joint_state.yaml
+│   ├── pre_grasp_joint_state.yaml
+│   ├── grasp_joint_state.yaml
+│   └── lift_joint_state.yaml
+└── fixed_pick_place/
+    ├── pre_bin_joint_state.yaml
+    ├── bin_joint_state.yaml
+    └── post_bin_joint_state.yaml
+```
+
+The Stage 3 files stay in `fixed_grasp/`. Stage 4 references those files rather
+than copying them into `fixed_pick_place/`.
+
+The completed ROS 2 package should therefore contain:
 
 ```text
 ros2_ws/src/fr3_vision_sorting/
 ├── config/
-│   ├── home_joint_state.yaml
-│   ├── pre_grasp_joint_state.yaml
-│   ├── grasp_joint_state.yaml
-│   ├── lift_joint_state.yaml
-│   ├── pre_bin_joint_state.yaml
-│   ├── bin_joint_state.yaml
-│   └── post_bin_joint_state.yaml
+│   ├── fixed_grasp/
+│   │   ├── home_joint_state.yaml
+│   │   ├── pre_grasp_joint_state.yaml
+│   │   ├── grasp_joint_state.yaml
+│   │   └── lift_joint_state.yaml
+│   └── fixed_pick_place/
+│       ├── pre_bin_joint_state.yaml
+│       ├── bin_joint_state.yaml
+│       └── post_bin_joint_state.yaml
 ├── fr3_vision_sorting/
 │   ├── __init__.py
 │   ├── fixed_pose_demo.py
@@ -139,7 +161,7 @@ The arm controller must report:
 fr3_arm_controller ... active
 ```
 
-## 2. Confirm the joint-state topic
+## 2. Confirm the joint-state topic and configuration folders
 
 ```bash
 ros2 topic list | grep joint_states
@@ -149,14 +171,69 @@ ros2 topic hz /joint_states
 Use the topic that is actively publishing. The commands below assume that it
 is `/joint_states`.
 
-Create the configuration directory:
+Create both configuration directories if they do not already exist:
 
 ```bash
 mkdir -p \
-  /workspace/ros2_ws/src/fr3_vision_sorting/config
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp \
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place
 ```
 
-## 3. Record `PRE_BIN`
+### Record or refresh `HOME`
+
+`HOME` belongs to the shared Stage 3 `fixed_grasp` configuration because it is
+used as the safe starting and ending state by both Stage 3 and Stage 4.
+
+Move the robot to the validated HOME pose in RViz, wait until it stops, then:
+
+```bash
+ros2 topic echo /joint_states --once \
+  > /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp/home_joint_state.yaml
+```
+
+Check it:
+
+```bash
+cat \
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp/home_joint_state.yaml
+```
+
+If the existing Stage 3 HOME pose is already validated, do not overwrite it
+unless you intentionally want to redefine HOME.
+
+## 3. Move existing Stage 4 bin files into the correct folder
+
+If the three bin YAML files were initially recorded directly under `config/`,
+move them into `config/fixed_pick_place/`:
+
+```bash
+cd /workspace/ros2_ws/src/fr3_vision_sorting/config
+
+mv pre_bin_joint_state.yaml fixed_pick_place/
+mv bin_joint_state.yaml fixed_pick_place/
+mv post_bin_joint_state.yaml fixed_pick_place/
+```
+
+After moving them, verify the layout:
+
+```bash
+find /workspace/ros2_ws/src/fr3_vision_sorting/config \
+  -maxdepth 2 -type f -name '*.yaml' -print
+```
+
+Expected organization:
+
+```text
+config/fixed_grasp/home_joint_state.yaml
+config/fixed_grasp/pre_grasp_joint_state.yaml
+config/fixed_grasp/grasp_joint_state.yaml
+config/fixed_grasp/lift_joint_state.yaml
+config/fixed_pick_place/pre_bin_joint_state.yaml
+config/fixed_pick_place/bin_joint_state.yaml
+config/fixed_pick_place/post_bin_joint_state.yaml
+```
+
+## 4. Record `PRE_BIN`
 
 Place the container at its fixed experiment location. In RViz, move the empty
 gripper to a pose:
@@ -167,14 +244,15 @@ gripper to a pose:
 - reachable without approaching a joint limit;
 - with the same end-effector orientation intended for release.
 
-After the robot stops completely, record the pose:
+After the robot stops completely, record the pose directly into the Stage 4
+folder:
 
 ```bash
 ros2 topic echo /joint_states --once \
-  > /workspace/ros2_ws/src/fr3_vision_sorting/config/pre_bin_joint_state.yaml
+  > /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/pre_bin_joint_state.yaml
 ```
 
-## 4. Record `BIN`
+## 5. Record `BIN`
 
 From `PRE_BIN`, descend vertically and slowly to the release pose.
 
@@ -190,10 +268,10 @@ Record the pose:
 
 ```bash
 ros2 topic echo /joint_states --once \
-  > /workspace/ros2_ws/src/fr3_vision_sorting/config/bin_joint_state.yaml
+  > /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/bin_joint_state.yaml
 ```
 
-## 5. Record `POST_BIN`
+## 6. Record `POST_BIN`
 
 Move vertically upward from `BIN` by approximately 10–15 cm. Do not begin with
 a horizontal retreat.
@@ -202,7 +280,7 @@ Record the pose:
 
 ```bash
 ros2 topic echo /joint_states --once \
-  > /workspace/ros2_ws/src/fr3_vision_sorting/config/post_bin_joint_state.yaml
+  > /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/post_bin_joint_state.yaml
 ```
 
 If `POST_BIN` is intentionally identical to `PRE_BIN`, it may initially be
@@ -210,21 +288,25 @@ copied:
 
 ```bash
 cp \
-  /workspace/ros2_ws/src/fr3_vision_sorting/config/pre_bin_joint_state.yaml \
-  /workspace/ros2_ws/src/fr3_vision_sorting/config/post_bin_joint_state.yaml
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/pre_bin_joint_state.yaml \
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/post_bin_joint_state.yaml
 ```
 
-## 6. Validate the recorded files
+## 7. Validate the recorded files
 
 ```bash
-ls -lh /workspace/ros2_ws/src/fr3_vision_sorting/config
+ls -lh \
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp
+
+ls -lh \
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place
 ```
 
-Check one file:
+Check one Stage 4 file:
 
 ```bash
 grep -A12 '^name:' \
-  /workspace/ros2_ws/src/fr3_vision_sorting/config/pre_bin_joint_state.yaml
+  /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_pick_place/pre_bin_joint_state.yaml
 ```
 
 The message may contain seven FR3 arm joints and two gripper joints. The Python
@@ -234,7 +316,7 @@ node selects and reorders only `fr3_joint1` through `fr3_joint7`.
 `fixed_grasp_demo.py` must use `yaml.safe_load_all()` so this separator does not
 cause a parsing error.
 
-## 7. Add `fixed_pick_place_demo.py`
+## 8. Add `fixed_pick_place_demo.py`
 
 Place the Stage 4 node at:
 
@@ -262,14 +344,29 @@ GRASP_SPEED = 0.02
 GRASP_FORCE = 10.0
 ```
 
-## 8. Update `setup.py`
+The Stage 4 node should load:
 
-Ensure that all YAML configuration files are installed:
+```text
+HOME / PRE_GRASP / GRASP / LIFT
+    from config/fixed_grasp/
+
+PRE_BIN / BIN / POST_BIN
+    from config/fixed_pick_place/
+```
+
+## 9. Update `setup.py`
+
+Because the YAML files are now stored in subdirectories, install both folders
+explicitly instead of relying only on `glob("config/*.yaml")`:
 
 ```python
 (
-    os.path.join("share", package_name, "config"),
-    glob("config/*.yaml"),
+    os.path.join("share", package_name, "config", "fixed_grasp"),
+    glob("config/fixed_grasp/*.yaml"),
+),
+(
+    os.path.join("share", package_name, "config", "fixed_pick_place"),
+    glob("config/fixed_pick_place/*.yaml"),
 ),
 ```
 
@@ -286,7 +383,7 @@ entry_points={
 },
 ```
 
-## 9. Build the package
+## 10. Build the package
 
 ```bash
 cd /workspace/ros2_ws
@@ -320,7 +417,7 @@ Expected output:
 fr3_vision_sorting fixed_pick_place_demo
 ```
 
-## 10. Validate the bin path without an object
+## 11. Validate the bin path without an object
 
 Before the complete pick-and-place test, use RViz at low speed to plan and
 execute each transition with an empty gripper:
@@ -343,7 +440,7 @@ Check that:
 
 Do not test a new path for the first time while holding an object.
 
-## 11. Run the complete Stage 4 demo
+## 12. Run the complete Stage 4 demo
 
 Keep the official MoveIt launch terminal running. In another container
 terminal:
@@ -372,7 +469,7 @@ The first complete test should pause for inspection at these points:
 4. `BIN`: confirm that both fingers can open safely.
 5. `POST_BIN`: confirm that the gripper is clear before returning HOME.
 
-## 12. Safe recovery after a failure
+## 13. Safe recovery after a failure
 
 The program stops immediately if an arm or gripper action fails. Determine the
 current robot pose before commanding another movement.
