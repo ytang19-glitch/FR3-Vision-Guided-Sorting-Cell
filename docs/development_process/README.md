@@ -25,6 +25,7 @@ Stage 7: Vision-guided sorting
 | Stage | Guide | Main result |
 |---:|---|---|
 | — | [FR3 ROS 2 Basic Command Cheat Sheet](FR3%20ROS%202%20Basic%20Command%20Cheat%20Sheet.md) | Quick reference for joint states, pose YAML files, gripper actions, build/run, TF and debugging commands |
+| — | [FR3 Grasping Lessons and Troubleshooting](FR3_GRASPING_LESSONS_AND_TROUBLESHOOTING.md) | Vertical grasp alignment, `inner`/`outer` epsilon, known grasp results, failure modes and lessons learned |
 | 1 | [Official FR3 model](stage_01_official_fr3.md) | Verified URDF, TF, controllers and fake hardware |
 | 2 | [Repeatable fixed-pose motion](stage_02_fixed_pose_motion.md) | `HOME → PRE_GRASP → HOME` |
 | 3 | [Fixed-position grasping](stage_03_fixed_grasping.md) | Grasp and lift one known object |
