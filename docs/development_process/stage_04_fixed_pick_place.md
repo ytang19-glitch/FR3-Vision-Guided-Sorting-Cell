@@ -576,8 +576,8 @@ after release.
 
 | Cycle | Pick | Lift | Move to bin | Release | Return HOME | Error/notes |
 |---:|:---:|:---:|:---:|:---:|:---:|---|
-| 1 |  |  |  |  |  |  |
-| 2 |  |  |  |  |  |  |
+| 1 | F  | T | T | T | T | P of cube |
+| 2 | F  | T | T | T | T |Grasp Epsilon Precision|
 | 3 |  |  |  |  |  |  |
 | 4 |  |  |  |  |  |  |
 | 5 |  |  |  |  |  |  |
