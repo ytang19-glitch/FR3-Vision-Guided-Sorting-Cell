@@ -558,6 +558,20 @@ No table, bin, camera-stand, or self-collision occurs
 No controller or Franka Desk error occurs
 Robot safely returns to HOME after every cycle
 ```
+### Solution of wrong file
+
+```bash
+cd /workspace/ros2_ws/src/fr3_vision_sorting
+
+mv config/pre_bin_joint_state.yaml \
+   config/fixed_pick_place/
+
+mv config/bin_joint_state.yaml \
+   config/fixed_pick_place/
+
+mv config/post_bin_joint_state.yaml \
+   config/fixed_pick_place/
+```
 
 Do not add RealSense-based dynamic coordinates until the fixed-position
 sequence is repeatable and safe.
