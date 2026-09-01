@@ -578,7 +578,7 @@ after release.
 |---:|:---:|:---:|:---:|:---:|:---:|---|
 | 1 | F  | T | T | T | T | P of cube |
 | 2 | F  | T | T | T | T |Grasp Epsilon Precision|
-| 3 |  |  |  |  |  |  |
+| 3 | T  | T | T | T | T |correct length of length|
 | 4 |  |  |  |  |  |  |
 | 5 |  |  |  |  |  |  |
 | 6 |  |  |  |  |  |  |
