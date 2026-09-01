@@ -516,6 +516,17 @@ Close the gripper and test if that is right position:
 ros2 action send_goal   /franka_gripper/grasp   franka_msgs/action/Grasp   "{width: 0.039, speed: 0.02, force: 10.0, epsilon: {inner: 0.08, outer: 0.008}}"   --feedback
 ```
 
+While:
+```bash
+ ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
+```
+Means:
+```bash
+“What is the current pose of fr3_hand_tcp expressed in fr3_link0?”
+```
+
+
+
 
 
 ## Planning Scene limitation
