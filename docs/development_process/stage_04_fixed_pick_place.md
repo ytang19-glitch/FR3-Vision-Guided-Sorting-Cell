@@ -1,5 +1,26 @@
 # Stage 4 — Fixed-Position Pick and Place
 
+> Attention:Stage 4 extends the successful Stage 3 grasping sequence. It does not duplicate the Stage 3 pose files.
+> Reusing Stage 3 Configuration
+
+The following poses are shared with Stage 3:
+
+| Pose | Configuration file | Purpose |
+|---|---|---|
+| `HOME` | `config/fixed_grasp/home_joint_state.yaml` | Safe starting and ending pose |
+| `PRE_GRASP` | `config/fixed_grasp/pre_grasp_joint_state.yaml` | Safe pose above the object |
+| `GRASP` | `config/fixed_grasp/grasp_joint_state.yaml` | Object pickup pose |
+| `LIFT` | `config/fixed_grasp/lift_joint_state.yaml` | Safely lift the object |
+
+Stage 4 also reuses the tested gripper parameters:
+
+```python
+GRASP_WIDTH = 0.039  # metres
+GRASP_SPEED = 0.02   # metres per second
+GRASP_FORCE = 10.0   # newtons
+
+
+
 Stage 4 extends the successful fixed grasp from Stage 3 by carrying the object
 to a known container and releasing it.
 
