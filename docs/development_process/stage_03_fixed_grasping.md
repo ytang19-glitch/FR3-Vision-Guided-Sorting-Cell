@@ -121,6 +121,15 @@ cat /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp/home_joint_stat
 Move the gripper to a safe pose approximately 10–15 cm above the fixed object.
 Keep the intended grasp orientation and verify table clearance.
 
+Command and verify if the gripper is vertical to the ground 
+```bash
+ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
+```
+Target:
+```bash
+Rotation: in Quaternion (xyzw) [0, 1, 0, 0]
+```
+
 ```bash
 ros2 topic echo /joint_states --once \
   > /workspace/ros2_ws/src/fr3_vision_sorting/config/fixed_grasp/pre_grasp_joint_state.yaml
