@@ -518,6 +518,13 @@ Close the gripper and test if that is right position:
 ```bash
 ros2 action send_goal   /franka_gripper/grasp   franka_msgs/action/Grasp   "{width: 0.039, speed: 0.02, force: 10.0, epsilon: {inner: 0.08, outer: 0.008}}"   --feedback
 ```
+```bash
+ros2 action send_goal   /franka_gripper/grasp   franka_msgs/action/Grasp   "{width: 0.045, speed: 0.02, force: 10.0, epsilon: {inner: 0.005, outer: 0.005}}"   --feedback
+```
+
+
+
+
 Rebuild it:
 ```bash
 cd /workspace/ros2_ws
