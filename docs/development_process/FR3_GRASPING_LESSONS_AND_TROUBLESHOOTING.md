@@ -2,7 +2,37 @@
 
 This note records the most important lessons learned while developing the fixed-position FR3 grasping workflow.
 
-The main lesson is that a successful grasp is not determined by the gripper command alone. The **robot pose**, **gripper opening**, **object placement**, and **grasp tolerance parameters** all work together.
+The main lesson is that a successful grasp is not determined by the gripper command alone. The **robot pose**, **gripper opening**, **object placement**, **grasp tolerance parameters**, and **action result handling** all work together.
+
+The current fixed-grasp baseline is now working with the following validated grasp parameters:
+
+```python
+width = 0.045
+speed = 0.02
+force = 10.0
+inner_epsilon = 0.010
+outer_epsilon = 0.010
+```
+
+The recommended sequence is:
+
+```text
+HOME
+ ↓
+PRE_GRASP
+ ↓
+OPEN GRIPPER
+ ↓
+GRASP_POSE
+ ↓
+CLOSE_ON_OBJECT
+ ↓
+CHECK result.success
+ ↓
+LIFT
+ ↓
+HOME
+```
 
 ---
 
@@ -21,35 +51,62 @@ DESCEND VERTICALLY
     ↓
 GRASP POSE
     ↓
-CLOSE / GRASP
+EXECUTE FRANKA GRASP ACTION
     ↓
 LIFT VERTICALLY
 ```
 
-The GRASP pose is the arm pose at which the fingers are still open but are already positioned around the object.
+The saved GRASP pose is the **arm configuration** where the fingers are still open but already positioned around the object. It is not the gripper-closing action itself.
 
 ### Why vertical alignment matters
 
-If the hand is tilted or laterally offset, one finger may touch the object before the other. This can push the object away, rotate it, produce an uneven contact, or make the object slip during lift.
+If the hand is tilted or laterally offset, one finger may touch the object before the other. This can:
 
-Vertical alignment also helps keep the motion predictable near the table. The approach direction is mostly along Z rather than sideways across the surface, which reduces the chance of sweeping the object away.
+- push the object sideways;
+- rotate the object;
+- create asymmetric contact;
+- make the object slip;
+- cause the gripper to stop at an unexpected width;
+- make Franka return `success = false` even though contact occurred.
+
+Ideal alignment:
+
+```text
+   gripper
+   |     |
+   | [■] |
+   | [■] |
+      ↑
+    cube
+```
+
+Off-center alignment:
+
+```text
+   gripper
+   |     |
+   |   [■]
+   |   [■]
+        ↑
+      cube
+```
+
+In the second case, one finger can touch first and move the cube before the second finger establishes proper contact.
 
 A good GRASP pose should satisfy:
 
-- the object is centered between the fingers;
+- the object is approximately centered between the fingers;
 - both fingers have similar clearance before closing;
+- the gripper is approximately vertical for a top-down grasp;
 - the fingers are not touching the table;
-- the hand has enough clearance from the table and surrounding objects;
-- the arm is not close to a joint limit or singular configuration;
+- the hand has enough clearance from surrounding objects;
 - the planned lift can move upward without collision.
-
-The gripper should normally be **open before the descent begins**. Do not descend to the grasp location with the gripper already closed around empty space.
 
 ---
 
 ## 2. GRASP pose versus gripper state
 
-The saved `grasp_joint_state.yaml` represents the **arm configuration**, not the fact that the fingers are already closed.
+The saved `grasp_joint_state.yaml` represents the **arm pose**, not the fact that the fingers are closed.
 
 The intended logic is:
 
@@ -62,435 +119,591 @@ Move arm to GRASP pose
         ↓
 Execute Franka Grasp action
         ↓
-Lift object
+Check grasp result
+        ↓
+Lift object only if grasp is confirmed
 ```
 
-Therefore, when recording the GRASP pose, keep the gripper open and position the object between the two fingers.
+A clearer conceptual name for the saved pose is therefore:
 
-Example:
-
-```bash
-cd /workspace/ros2_ws/src/fr3_vision_sorting/config
-
-ros2 topic echo /joint_states --once \
-  > grasp_joint_state.yaml
+```text
+GRASP_POSE
 ```
 
-Verify the saved pose:
+rather than treating `GRASP` as the closing action itself.
 
-```bash
-cat grasp_joint_state.yaml
+The gripper should normally be **fully open before the descent begins**.
+
+For the current setup, an opening near:
+
+```text
+0.080 m
 ```
+
+provides useful lateral clearance before closing on the cube.
 
 ---
 
-## 3. Franka Grasp parameters
+## 3. Current validated Franka Grasp parameters
 
-The current code uses:
+The fixed-grasp baseline currently uses:
 
 ```python
 def close_on_object(
     self,
-    width: float = 0.039,
+    width: float = 0.045,
     speed: float = 0.02,
     force: float = 10.0,
 ) -> bool:
-    """Close on an object using Franka's contact-aware Grasp action."""
     goal = Grasp.Goal()
     goal.width = width
     goal.speed = speed
     goal.force = force
-    goal.epsilon = GraspEpsilon(inner=0.08, outer=0.008)
+    goal.epsilon = GraspEpsilon(
+        inner=0.010,
+        outer=0.010,
+    )
 ```
 
-The four important quantities are:
+The important quantities are:
 
 | Parameter | Meaning |
 |---|---|
-| `width` | Expected grasped object width in metres |
+| `width` | Expected final grasp width in metres |
 | `speed` | Finger closing speed |
 | `force` | Requested grasping force |
-| `epsilon` | Width tolerance used to decide whether the grasp is considered successful |
+| `inner` | Allowed deviation below the target width |
+| `outer` | Allowed deviation above the target width |
 
-The Franka grasp success condition is approximately:
-
-```text
-(width - epsilon.inner) < measured_width < (width + epsilon.outer)
-```
-
-For example, with:
-
-```python
-width = 0.039
-inner = 0.005
-outer = 0.005
-```
-
-the accepted final width is approximately:
+The approximate success interval is:
 
 ```text
-0.034 m < measured width < 0.044 m
+width - inner < measured_width < width + outer
 ```
 
-This is why `inner` and `outer` can significantly affect whether the action reports success.
+For the current parameters:
+
+```text
+width = 0.045 m
+inner = 0.010 m
+outer = 0.010 m
+```
+
+which gives approximately:
+
+```text
+0.035 m < measured_width < 0.055 m
+```
+
+This range is intentionally more tolerant than the earlier ±5 mm test while the fixed grasp pose is still being tuned.
 
 ---
 
-## 4. Meaning of `inner`
+## 4. Why the CLI command could succeed while `fixed_grasp_demo` failed
 
-`inner` is the allowed deviation when the measured grasp width is **smaller** than the commanded width.
+A key troubleshooting lesson was that this command could succeed:
+
+```bash
+ros2 action send_goal \
+  /franka_gripper/grasp \
+  franka_msgs/action/Grasp \
+  "{width: 0.045, speed: 0.02, force: 10.0, epsilon: {inner: 0.005, outer: 0.005}}" \
+  --feedback
+```
+
+while the automatic program sometimes printed:
+
+```text
+[ERROR] [fixed_grasp_demo]: The gripper did not confirm a grasp.
+```
+
+This does **not automatically mean the Python action client is wrong**.
+
+The CLI test and the automated demo may start from slightly different physical conditions:
+
+```text
+CLI test
+  ↓
+Cube manually centered
+  ↓
+Gripper open
+  ↓
+Grasp
+  ↓
+Success
+```
+
+versus:
+
+```text
+Automatic demo
+  ↓
+Move through HOME / PRE_GRASP / GRASP_POSE
+  ↓
+Small XY or orientation error
+  ↓
+One finger contacts first
+  ↓
+Cube moves slightly
+  ↓
+Unexpected final width
+  ↓
+Franka may return success = false
+```
+
+Therefore, when CLI succeeds but the demo fails, compare the **physical initial condition**, not only the numerical grasp parameters.
+
+---
+
+## 5. Why a slightly off-center cube can cause failure
+
+If the cube is slightly away from the gripper center, the first contact can become asymmetric.
 
 Example:
 
-```python
-width = 0.039
-inner = 0.005
+```text
+Ideal
+
+   |       |
+   |  [■]  |
+   |  [■]  |
+      center
 ```
 
-The lower accepted width is:
+versus:
 
 ```text
-0.039 - 0.005 = 0.034 m
+Off center
+
+   |       |
+   |    [■]|
+   |    [■]|
+          ↑
+       shifted cube
 ```
 
-A larger `inner` tolerance allows the fingers to close further than expected and still report the grasp as successful.
+Possible consequences:
 
-This can help when the real object width is uncertain, but an excessively large value makes the success test much less informative.
+1. one finger touches the cube first;
+2. the cube is pushed sideways;
+3. the cube rotates;
+4. the second finger contacts at a different point;
+5. the final gripper width differs from the expected value;
+6. the grasp action may return `success = false`.
+
+Increasing force is not the first solution to this problem. More force can simply push or rotate a poorly aligned object harder.
+
+The better order is:
+
+```text
+Fix pose geometry
+      ↓
+Improve centering
+      ↓
+Use enough opening before descent
+      ↓
+Use reasonable epsilon
+      ↓
+Then tune force if necessary
+```
 
 ---
 
-## 5. Meaning of `outer`
+## 6. The role of epsilon
 
-`outer` is the allowed deviation when the measured grasp width is **larger** than the commanded width.
-
-Example:
-
-```python
-width = 0.039
-outer = 0.005
-```
-
-The upper accepted width is:
-
-```text
-0.039 + 0.005 = 0.044 m
-```
-
-This was important in the successful test because the measured width was:
-
-```text
-current_width = 0.040586 m
-```
-
-Compared with the target:
-
-```text
-0.040586 - 0.039 = 0.001586 m
-```
-
-The real grasp finished about **1.59 mm wider** than the commanded target. Therefore an `outer` tolerance greater than about `0.001586 m` can accept that measured width.
-
-Both:
-
-```python
-outer=0.005
-```
-
-and:
-
-```python
-outer=0.008
-```
-
-are wide enough for that particular observed grasp result.
-
----
-
-## 6. Important note about `inner=0.08`
-
-The current line:
-
-```python
-goal.epsilon = GraspEpsilon(inner=0.08, outer=0.008)
-```
-
-uses an inner tolerance of **80 mm**.
-
-For a target width of `39 mm`, the mathematical lower bound becomes:
-
-```text
-39 mm - 80 mm = -41 mm
-```
-
-Since a physical gripper width cannot be negative, this effectively makes the lower-side tolerance extremely permissive.
-
-That may make the action easier to report as successful, but it also means the success result is less strict and may hide a poor grasp.
-
-For a repeatable grasp, a tighter value such as:
+The current working code uses:
 
 ```python
 goal.epsilon = GraspEpsilon(
-    inner=0.005,
-    outer=0.005,
+    inner=0.010,
+    outer=0.010,
 )
 ```
 
-is usually easier to interpret because it corresponds to approximately ±5 mm around the requested width.
+With:
 
-Do not tune epsilon only to force `success: true`. The object should also be physically stable and survive the lift.
+```text
+width = 0.045 m
+```
+
+this gives an approximate accepted region of:
+
+```text
+35 mm -------- 45 mm -------- 55 mm
+                 ↑
+              target
+```
+
+This is useful when the real object contact width varies slightly because of:
+
+- small XY placement error;
+- finger contact location;
+- small cube rotation;
+- mechanical compliance;
+- repeatability limits in the saved pose.
+
+However:
+
+> `epsilon` changes the success criterion; it does not physically center the cube or improve contact geometry.
+
+Do not keep increasing epsilon only to force `success = true`.
+
+A physically bad grasp can still drop the cube during lift even if the software reports success.
 
 ---
 
-## 7. Why pose and epsilon must be considered together
+## 7. Why `inner=0.08` was not a good final setting
 
-A large epsilon cannot compensate for a bad physical grasp pose.
+An earlier test used:
 
-For example:
-
-```text
-Bad hand alignment
-      ↓
-One finger contacts first
-      ↓
-Object shifts sideways
-      ↓
-Gripper stops at an unexpected width
-      ↓
-Large epsilon may still return success
-      ↓
-Object can slip during LIFT
+```python
+goal.epsilon = GraspEpsilon(
+    inner=0.08,
+    outer=0.008,
+)
 ```
 
-The better approach is:
+For a target width near 39 mm, an `inner` tolerance of 80 mm makes the lower-side acceptance extremely permissive and difficult to interpret physically.
+
+The lesson is:
 
 ```text
-Correct vertical pose
-      +
-Object centered between fingers
-      +
-Appropriate target width
-      +
-Reasonable epsilon
-      +
-Low safe speed and force
-      ↓
-Repeatable physical grasp
+Large epsilon
+    ≠
+Better grasp
 ```
 
-A `SUCCEEDED` action status is useful, but the real completion test is whether the object remains secure during the lift and transfer.
+A smaller, interpretable tolerance should be preferred once the grasp pose is stable.
+
+The current baseline uses:
+
+```python
+inner=0.010
+outer=0.010
+```
+
+while the physical alignment is being improved.
 
 ---
 
-## 8. Known working grasp result
+## 8. Add feedback logging to diagnose grasp failures
 
-A successful test produced:
-
-```text
-current_width: 0.040586 m
-success: true
-status: SUCCEEDED
-```
-
-The tested command was based around:
+The original program only reported:
 
 ```text
-width: 0.039 m
-speed: 0.02 m/s
-force: 10 N
+The gripper did not confirm a grasp.
 ```
 
-The observed final width was approximately `40.59 mm`.
+That message alone is not enough to diagnose the failure.
 
-This demonstrates that the commanded target width does not have to exactly equal the measured final width. The epsilon range is used to decide whether the measured result is acceptable.
+The improved action client should attach a feedback callback:
+
+```python
+send_future = self.grasp_client.send_goal_async(
+    goal,
+    feedback_callback=self.grasp_feedback_callback,
+)
+```
+
+Example callback:
+
+```python
+def grasp_feedback_callback(self, feedback_msg) -> None:
+    current_width = feedback_msg.feedback.current_width
+    self.get_logger().info(
+        f"Gripper width: {current_width:.5f} m"
+    )
+```
+
+A successful run may look like:
+
+```text
+Gripper width: 0.07999 m
+Gripper width: 0.07052 m
+Gripper width: 0.06184 m
+Gripper width: 0.05312 m
+Gripper width: 0.04721 m
+Gripper width: 0.04634 m
+```
+
+This allows the final physical finger position to be compared against the expected epsilon interval.
 
 ---
 
-## 9. Problems encountered during development
+## 9. Always print the Franka action result
 
-### Issue 1 — GRASP pose was not sufficiently vertical or centered
+The program should explicitly inspect:
 
-**Symptom:** grasp reliability changed even though the gripper parameters were similar.
+```python
+wrapped_result = result_future.result()
+result = wrapped_result.result
+```
 
-**Cause:** the object was not equally positioned between both fingers, or the end effector orientation was not suitable for a clean top-down grasp.
+and log:
 
-**Lesson:** first fix the physical grasp pose before increasing force or tolerance.
+```python
+self.get_logger().info(
+    f"Grasp result: success={result.success}, "
+    f"error='{result.error}'"
+)
+```
 
----
-
-### Issue 2 — Uncertainty about whether the gripper should be open at GRASP
-
-**Resolution:** the gripper should be open during the PRE_GRASP → GRASP descent. The Franka Grasp action is sent only after the hand reaches the correct grasp pose.
+This distinguishes between several failure modes:
 
 ```text
-PRE_GRASP → OPEN → DESCEND → GRASP POSE → CLOSE
+Goal rejected
+      ≠
+No action result
+      ≠
+Action completed but grasp success=False
+      ≠
+Physical object later slipping during lift
+```
+
+The program should only continue to LIFT when:
+
+```python
+result.success is True
 ```
 
 ---
 
-### Issue 3 — Grasp action failed even when the object appeared to be held
+## 10. Recommended robust fixed-grasp sequence
 
-**Cause:** the final finger width can be outside the allowed epsilon interval even if physical contact occurs.
-
-**Lesson:** compare the measured `current_width` with:
+The fixed-position baseline should use this sequence:
 
 ```text
-width - inner
-width + outer
+HOME
+ ↓
+PRE_GRASP
+ ↓
+OPEN GRIPPER TO ~0.080 m
+ ↓
+MOVE TO GRASP_POSE
+ ↓
+KEEP GRIPPER APPROXIMATELY VERTICAL
+ ↓
+EXECUTE GRASP ACTION
+   width = 0.045 m
+   speed = 0.02 m/s
+   force = 10 N
+   inner = 0.010 m
+   outer = 0.010 m
+ ↓
+CHECK result.success
+ ↙                 ↘
+TRUE               FALSE
+ ↓                   ↓
+LIFT             DO NOT LIFT
 ```
 
-before changing parameters randomly.
+This is safer and easier to debug than lifting regardless of grasp confirmation.
 
 ---
 
-### Issue 4 — Target width and measured width were not identical
+## 11. What to do when the cube is slightly away from the gripper center
 
-The target was:
+For the current fixed-position stage:
+
+1. Open the gripper fully before descending.
+2. Keep the grasp orientation vertical.
+3. Make sure the GRASP pose gives both fingers enough side overlap with the cube.
+4. Avoid grasping only the top edge or corner of the cube.
+5. Use a reasonable epsilon rather than an extremely strict one.
+6. If the grasp fails, inspect `current_width` before changing parameters.
+7. Re-center or adjust the saved GRASP pose if one finger repeatedly contacts first.
+
+A useful physical target is:
 
 ```text
-0.039 m
+        |         |
+        |   [■]   |
+        |   [■]   |
+        |   [■]   |
+            ↑
+       cube inside
+       finger region
 ```
 
-while the successful measured result was:
+rather than:
 
 ```text
-0.040586 m
+        |         |
+        |       [■]
+        |       [■]
+                 ↑
+             edge contact
 ```
 
-This is normal. The target is the expected grasp width, while the actual stopped width depends on object geometry, contact, compliance, and finger placement.
+The second configuration has much lower grasp tolerance.
 
 ---
 
-### Issue 5 — Pose YAML recording workflow was unclear
+## 12. Recommended debugging order
 
-The reliable workflow is:
+When the program reports:
+
+```text
+The gripper did not confirm a grasp.
+```
+
+debug in this order:
+
+```text
+1. Confirm gripper was fully open before descent
+        ↓
+2. Check cube XY placement
+        ↓
+3. Check vertical gripper orientation
+        ↓
+4. Check grasp Z height / finger overlap
+        ↓
+5. Check whether one finger contacts first
+        ↓
+6. Read feedback current_width
+        ↓
+7. Compare current_width with width ± epsilon
+        ↓
+8. Read result.success and result.error
+        ↓
+9. Only then tune epsilon / width
+        ↓
+10. Tune force only if physical holding force is actually insufficient
+```
+
+Do not begin by dramatically increasing force.
+
+---
+
+## 13. Rebuild and source after code changes
+
+After changing the Python node:
 
 ```bash
-cd /workspace/ros2_ws/src/fr3_vision_sorting/config
+cd /workspace/ros2_ws
 
-ros2 topic echo /joint_states --once \
-  > grasp_joint_state.yaml
+colcon build \
+  --packages-select fr3_vision_sorting \
+  --symlink-install
 
-cat grasp_joint_state.yaml
+source install/setup.bash
 ```
 
-The `>` operator creates the YAML file automatically if it does not already exist.
-
----
-
-### Issue 6 — Joint-state topic can differ between robot setups
-
-Check available topics:
-
-```bash
-ros2 topic list | grep joint
-```
-
-Then verify that the selected topic is publishing:
-
-```bash
-ros2 topic hz /joint_states
-```
-
-or, when required:
-
-```bash
-ros2 topic hz /fr3/franka/joint_states
-```
-
-Always confirm that the recorded message contains the FR3 arm joints before saving a pose.
-
----
-
-### Issue 7 — ROS executable command syntax
-
-A ROS executable must normally be started with:
+Then run:
 
 ```bash
 ros2 run fr3_vision_sorting fixed_grasp_demo
 ```
 
-Running only:
-
-```bash
-fr3_vision_sorting fixed_grasp_demo
-```
-
-results in a shell `command not found` error because `fr3_vision_sorting` is a ROS package name, not a standalone shell executable.
+This prevents testing an older installed copy of the Python executable by mistake.
 
 ---
 
-### Issue 8 — Rebuild and source after package changes
+## 14. From fixed grasping to vision-guided grasping
 
-After changing package code or installed configuration:
+The fixed-position grasp is only the baseline.
 
-```bash
-cd /workspace/ros2_ws
+A vision-guided system should eventually remove the requirement that the cube be manually placed at exactly the same XY location every time.
 
-source /opt/ros/jazzy/setup.bash
-source /opt/franka_ros2_ws/install/setup.bash
-
-colcon build --symlink-install \
-  --packages-select fr3_vision_sorting
-
-source install/setup.bash
-```
-
-If a new executable does not appear, check:
-
-```bash
-ros2 pkg executables fr3_vision_sorting
-```
-
----
-
-## 10. Recommended debugging order
-
-When a grasp fails, debug in this order:
+The planned pipeline is:
 
 ```text
-1. Check object placement
+RealSense detects cube
         ↓
-2. Check vertical hand orientation
+Estimate cube center / pose
         ↓
-3. Check object is centered between fingers
+Transform camera coordinates to robot frame
         ↓
-4. Check GRASP height above the table
+Correct robot XY position
         ↓
-5. Check gripper is open before descent
+Move above cube
         ↓
-6. Check target width
+Open gripper
         ↓
-7. Check measured current_width
+Vertical descent
         ↓
-8. Check inner / outer epsilon
+Grasp
         ↓
-9. Check force and speed
+Check result.success
         ↓
-10. Test LIFT stability
+Lift and sort
 ```
 
-Do not begin by dramatically increasing force or epsilon.
+This is the long-term solution for a cube that is slightly away from the previously recorded fixed grasp center.
 
 ---
 
-## 11. Practical success criteria
+## 15. Suggested repeatability experiment
 
-A grasp should be considered stable only if all of the following are true:
+Before moving fully to vision guidance, measure the physical tolerance of the fixed grasp.
+
+For example, intentionally shift the cube by:
 
 ```text
-Grasp action reports success
-        +
-Object is centered and securely contacted
-        +
-Object does not rotate excessively
-        +
-Object does not slip during LIFT
-        +
-No table collision
-        +
-No controller / Franka error
-        ↓
-Stable grasp
+0 mm
+2 mm
+5 mm
+10 mm
+15 mm
 ```
 
-For a fixed-position baseline, repeat the same grasp multiple times with the object returned to the same location. A repeatable physical grasp is more important than obtaining a single `success: true` result.
+in X and Y and repeat each grasp several times.
+
+Record:
+
+- XY offset;
+- `current_width`;
+- `result.success`;
+- whether the cube survives LIFT;
+- whether the cube rotates or slips.
+
+This produces a useful engineering metric:
+
+```text
+XY placement error
+        ↓
+Grasp success rate
+```
+
+The goal for the fixed-position baseline should be repeatability, not a single successful grasp. A practical milestone is approximately 9 successful grasps out of 10 under the same placement conditions before moving on to vision-guided correction.
+
+---
+
+## 16. Final lessons learned
+
+The most important lessons from this stage are:
+
+```text
+Correct grasp pose
+      +
+Vertical approach
+      +
+Fully open gripper before descent
+      +
+Object reasonably centered
+      +
+Appropriate target width
+      +
+Reasonable epsilon
+      +
+Action feedback logging
+      +
+Check result.success before lift
+      ↓
+Repeatable FR3 grasp
+```
+
+The current validated grasp baseline is:
+
+```text
+Open width:       ~0.080 m
+Grasp width:       0.045 m
+Speed:             0.020 m/s
+Force:            10.0 N
+Inner epsilon:     0.010 m
+Outer epsilon:     0.010 m
+Approach:          approximately vertical
+Lift condition:    only after result.success == True
+```
+
+The biggest lesson is that **a grasp is a geometry-and-contact problem first, and a parameter-tuning problem second**.
