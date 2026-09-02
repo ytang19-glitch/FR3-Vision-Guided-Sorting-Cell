@@ -375,6 +375,197 @@ PRE_BIN / BIN / POST_BIN
     from config/fixed_pick_place/
 ```
 
+### Why Stage 4 still needs MoveIt
+
+`fixed_pick_place_demo.py` defines the sequence of actions, but it does not
+implement FR3 arm motion by itself. The Stage 4 node reuses the motion
+capability already implemented in `FixedGraspDemo`:
+
+```python
+from fr3_vision_sorting.fixed_grasp_demo import FixedGraspDemo
+```
+
+When Stage 4 executes a step such as:
+
+```python
+move_or_stop(demo, "PRE_GRASP")
+```
+
+`move_or_stop()` calls:
+
+```python
+demo.move_to("PRE_GRASP")
+```
+
+The recorded YAML file provides the **target joint configuration**, but a target
+configuration alone does not move the robot. `FixedGraspDemo.move_to()` uses
+MoveIt to plan and execute the transition from the FR3's current state to that
+target.
+
+The arm-control path is therefore:
+
+```text
+fixed_pick_place_demo.py
+        |
+        | calls
+        v
+FixedGraspDemo.move_to("PRE_GRASP")
+        |
+        | uses MoveIt
+        v
+MoveIt motion planning
+        |
+        | generates a trajectory
+        v
+fr3_arm_controller
+        |
+        v
+Real FR3 arm
+```
+
+Conceptually, MoveIt performs the middle layer between a stored pose and real
+robot motion:
+
+```text
+Current FR3 joint state
+        |
+        v
+Target joint state loaded from YAML
+        |
+        v
+Collision checking and motion planning
+        |
+        v
+Trajectory generation
+        |
+        v
+fr3_arm_controller
+        |
+        v
+Physical FR3 motion
+```
+
+This separation is important. The Stage 4 program decides **where the robot
+should go and in what order**, while MoveIt decides **how the arm should move
+between those configurations** and sends the resulting trajectory to the arm
+controller.
+
+### Arm control versus gripper control
+
+The FR3 arm and Franka gripper use different control paths in this project.
+Arm movements such as:
+
+```python
+demo.move_to("GRASP")
+```
+
+follow approximately this path:
+
+```text
+Python Stage 4 node
+        |
+        v
+FixedGraspDemo.move_to()
+        |
+        v
+MoveIt
+        |
+        v
+fr3_arm_controller
+        |
+        v
+FR3 arm
+```
+
+Gripper operations such as:
+
+```python
+gripper.open_gripper()
+```
+
+and:
+
+```python
+demo.close_on_object(
+    width=GRASP_WIDTH,
+    speed=GRASP_SPEED,
+    force=GRASP_FORCE,
+)
+```
+
+use the Franka gripper action interfaces instead of MoveIt arm planning:
+
+```text
+Python Stage 4 node
+        |
+        v
+GripperController / close_on_object()
+        |
+        v
+/franka_gripper/move or /franka_gripper/grasp
+        |
+        v
+Franka gripper
+```
+
+The complete Stage 4 software architecture is therefore:
+
+```text
+                     fixed_pick_place_demo.py
+                              |
+                 +------------+-------------+
+                 |                          |
+                 v                          v
+          FixedGraspDemo              GripperController
+                 |                          |
+              move_to()             open / grasp actions
+                 |                          |
+                 v                          v
+               MoveIt                 Franka gripper
+                 |
+                 v
+        fr3_arm_controller
+                 |
+                 v
+              FR3 arm
+```
+
+This architecture also explains why Stage 4 imports and reuses
+`FixedGraspDemo` instead of rewriting the motion-planning code. Each stage adds
+a new layer of capability while retaining the validated lower-level behavior:
+
+```text
+Stage 1
+Basic MoveIt arm movement
+        |
+        v
+Stage 2 / Stage 3
+FixedGraspDemo
+HOME -> PRE_GRASP -> GRASP -> LIFT
+        |
+        v
+Stage 4
+fixed_pick_place_demo.py
+reuses FixedGraspDemo
++ PRE_BIN -> BIN -> RELEASE -> POST_BIN
+        |
+        v
+Future vision-guided stage
+camera detects the object
+        |
+        v
+compute a dynamic grasp target
+        |
+        v
+MoveIt plans and executes motion to that target
+```
+
+The fixed-position experiment is therefore not separate from the future vision
+system. It validates the arm-motion, gripper-control, sequencing, and recovery
+layers first. Later perception stages can replace the fixed pickup target with
+a camera-derived target while continuing to reuse the same robot-control
+foundation.
+
 ## 9. Update `setup.py`
 
 Because the YAML files are now stored in subdirectories, install both folders
