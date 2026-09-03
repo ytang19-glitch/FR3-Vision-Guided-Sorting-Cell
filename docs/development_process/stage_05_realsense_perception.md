@@ -209,6 +209,149 @@ Do not modify the saved `GRASP` pose or `automatic_pick_place_demo.py` during th
 
 Stage 6 will estimate the transform between the camera optical frame and `fr3_link0`. Only after that transform is validated in RViz should camera measurements be converted into robot-base coordinates and used to generate a dynamic pre-grasp pose.
 
+## 9. Relevant Information — Pixels and 3D Perception
+
+### What is a pixel?
+
+A **pixel** is the smallest addressable element of a digital image. In computer vision, pixels are the raw measurements from which algorithms infer color, edges, shapes, objects and object locations.
+
+Each pixel has an image coordinate:
+
+```text
+(u, v)
+```
+
+where:
+
+- `u` is the horizontal image coordinate (column), increasing to the right.
+- `v` is the vertical image coordinate (row), increasing downward.
+- `(0, 0)` is normally the top-left corner of the image.
+
+For example, an object detected at
+
+```text
+(u, v) = (430, 310)
+```
+
+means that the object's selected image point, such as its center, lies at column 430 and row 310. These values are measured in **pixels**, not metres.
+
+### What information does a pixel contain?
+
+For a color image, a pixel normally contains RGB intensity values:
+
+```text
+P(u, v) = [R, G, B]
+```
+
+Computer-vision algorithms process groups of pixels to detect useful visual structure:
+
+```text
+Pixels
+   ↓
+Color / intensity / edges / texture
+   ↓
+Object region
+   ↓
+Object detection
+   ↓
+Object center (u, v)
+```
+
+The pixel coordinate tells us **where the object appears in the image**, but by itself it does not tell us the physical 3D position of the object.
+
+### Why depth is required
+
+For the RealSense D405, the aligned depth image provides a depth measurement corresponding to the color-image pixel.
+
+For example:
+
+```text
+Object center: (u, v) = (430, 310)
+Depth:         Z = 0.400 m
+```
+
+The combination `(u, v, Z)` provides enough information, together with the camera intrinsics, to deproject the image point into a 3D point in the camera optical frame.
+
+Using
+
+```text
+Xc = (u - cx) * Z / fx
+Yc = (v - cy) * Z / fy
+Zc = Z
+```
+
+we obtain
+
+```text
+P_camera = [Xc, Yc, Zc]
+```
+
+in metres.
+
+For example, a measurement may produce approximately:
+
+```text
+Xc = 0.0699 m
+Yc = 0.0557 m
+Zc = 0.4000 m
+```
+
+### ROS camera optical-frame convention
+
+For the standard ROS optical frame:
+
+```text
++x → image right
++y → image down
++z → forward from camera
+```
+
+Therefore:
+
+- positive `Xc` means the point is to the right of the optical center,
+- positive `Yc` means the point is below the optical center,
+- positive `Zc` means the point is in front of the camera.
+
+### From pixels to robot manipulation
+
+The FR3 cannot directly use a command such as "pick the object at pixel `(430, 310)`". Robot motion requires a physical position expressed in a robot coordinate frame such as `fr3_link0`.
+
+The complete perception-to-manipulation chain is therefore:
+
+```text
+Physical object
+      ↓
+RealSense color image
+      ↓
+Pixels
+      ↓
+Object detection
+      ↓
+Center pixel (u, v)
+      ↓
+Aligned depth Z
+      ↓
+Camera intrinsics (fx, fy, cx, cy)
+      ↓
+Camera-frame 3D point (Xc, Yc, Zc) [m]
+      ↓
+Camera-to-robot calibration / TF
+      ↓
+Robot-base point (Xb, Yb, Zb) [m]
+      ↓
+Generate PRE_GRASP / GRASP pose
+      ↓
+MoveIt motion planning
+      ↓
+FR3 manipulation
+```
+
+The key idea is:
+
+> **A pixel provides a 2D location in the image. Depth and camera calibration convert that 2D observation into a physical 3D point. A validated camera-to-robot transform then converts that point into coordinates the FR3 can use for manipulation.**
+
+This is the conceptual bridge between **computer vision** and **robot manipulation** in this project.
+
 ---
 
 [Development Process Index](README.md) · [Previous Stage](stage_04_fixed_pick_place.md) · [Next Stage](stage_06_calibration_tf2.md)
