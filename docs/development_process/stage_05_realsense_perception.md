@@ -113,23 +113,109 @@ The important values are:
 - `fx`, `fy`: focal lengths in pixels.
 - `cx`, `cy`: optical center in pixels.
 
+For the currently tested D405 color stream:
+
+```text
+fx = 426.5189 pixels
+fy = 426.0117 pixels
+cx = 425.4981 pixels
+cy = 240.6794 pixels
+```
+
+These values are an experimental reference only. Read them from `CameraInfo`
+at runtime because changing the resolution or stream profile can change the
+intrinsics.
+
 Use the `frame_id` supplied in the message header as the camera optical frame. Do not assume the frame name without checking the published message.
 
 ## 5. Pixel and Depth to Camera-Frame XYZ
 
-For an object center at pixel `(u, v)` with depth `Z` in metres:
+For an object center at pixel `(u, v)` with depth `Zc` in metres:
 
 ```text
-X = (u - cx) * Z / fx
-Y = (v - cy) * Z / fy
-Z = aligned depth at pixel (u, v)
+Xc = (u - cx) * Zc / fx
+Yc = (v - cy) * Zc / fy
+Zc = aligned depth at pixel (u, v)
 ```
 
-The result is the object's 3D position in the camera optical frame:
+The subscript `c` means that `Xc`, `Yc` and `Zc` are expressed in the
+**camera optical coordinate frame**.
+
+| Variable | Unit | Physical meaning |
+|---|---:|---|
+| `u` | pixels | Horizontal coordinate (image column) of the detected object point |
+| `v` | pixels | Vertical coordinate (image row) of the detected object point |
+| `cx` | pixels | Horizontal coordinate where the optical axis intersects the image |
+| `cy` | pixels | Vertical coordinate where the optical axis intersects the image |
+| `fx` | pixels | Horizontal focal length; converts horizontal viewing direction into pixel displacement |
+| `fy` | pixels | Vertical focal length; converts vertical viewing direction into pixel displacement |
+| `Xc` | metres | Object's physical left-right displacement from the camera optical axis |
+| `Yc` | metres | Object's physical up-down displacement from the camera optical axis |
+| `Zc` | metres | Object's forward distance from the camera |
+
+The formulas are the inverse of the pinhole-camera projection equations:
 
 ```text
-P_camera = [X, Y, Z]
+u = fx * Xc / Zc + cx
+v = fy * Yc / Zc + cy
 ```
+
+Their physical meaning is:
+
+1. `u - cx` and `v - cy` measure the pixel displacement from the optical
+   center.
+2. Dividing by `fx` or `fy` converts the pixel displacement into a
+   normalized camera-ray direction.
+3. Multiplying by the measured depth `Zc` scales that direction into a
+   physical displacement in metres.
+
+The signs follow the ROS optical-frame convention:
+
+- If `u > cx`, then `Xc > 0`: the point is to the image's right.
+- If `u < cx`, then `Xc < 0`: the point is to the image's left.
+- If `v > cy`, then `Yc > 0`: the point is below the optical center.
+- If `v < cy`, then `Yc < 0`: the point is above the optical center.
+- If `(u, v) = (cx, cy)`, then `Xc = Yc = 0`: the point lies on the
+  camera's optical `+Z` axis.
+
+In matrix form:
+
+```text
+                 [u]
+P_camera = Zc K⁻¹[v]
+                 [1]
+
+P_camera = [Xc, Yc, Zc]ᵀ
+```
+
+One RGB pixel describes a ray rather than a unique 3D point. The aligned-depth
+measurement `Zc` determines where the object lies along that ray.
+
+Using the measured D405 values and the example
+
+```text
+u = 500 pixels
+v = 300 pixels
+Zc = 0.4000 m
+```
+
+gives
+
+```text
+Xc = (500 - 425.4981) * 0.4000 / 426.5189 = 0.0699 m
+Yc = (300 - 240.6794) * 0.4000 / 426.0117 = 0.0557 m
+Zc = 0.4000 m
+```
+
+Therefore:
+
+```text
+P_camera = [0.0699, 0.0557, 0.4000] m
+```
+
+This point is approximately **6.99 cm to the right**, **5.57 cm down**, and
+**40.00 cm in front** of the camera optical origin. It is not yet expressed in
+the FR3 base frame `fr3_link0`.
 
 Confirm the depth image encoding before conversion:
 
