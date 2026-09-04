@@ -267,7 +267,240 @@ point.point.y = y_camera
 point.point.z = z_camera
 ```
 
-## 7. Stage 5 Validation Criteria
+## 7. How to Test the Perception Node
+
+Keep the FR3 stationary during these tests. This procedure validates perception
+only; it must not send any motion command to the robot.
+
+### 7.1 Install the required packages
+
+Inside the ROS 2 container:
+
+```bash
+sudo apt update
+sudo apt install \
+  ros-jazzy-cv-bridge \
+  ros-jazzy-message-filters \
+  python3-opencv \
+  python3-numpy
+```
+
+The package must also declare `rclpy`, `sensor_msgs`, `geometry_msgs`,
+`cv_bridge` and `message_filters` in `package.xml`.
+
+### 7.2 Build and source the package
+
+```bash
+cd /workspace/ros2_ws
+
+source /opt/ros/jazzy/setup.bash
+
+colcon build --symlink-install \
+  --packages-select fr3_vision_sorting
+
+source install/setup.bash
+```
+
+Confirm that ROS 2 can find the executable:
+
+```bash
+ros2 pkg executables fr3_vision_sorting | grep camera_object_localizer
+```
+
+Expected output:
+
+```text
+fr3_vision_sorting camera_object_localizer
+```
+
+If nothing appears, confirm that `setup.py` contains:
+
+```python
+"camera_object_localizer = "
+"fr3_vision_sorting.camera_object_localizer:main",
+```
+
+Then rebuild and source the workspace again.
+
+### 7.3 Start the D405
+
+Terminal 1:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+
+ros2 launch realsense2_camera rs_launch.py \
+  align_depth.enable:=true \
+  enable_sync:=true
+```
+
+Confirm the three required topics:
+
+```bash
+ros2 topic list | grep -E \
+  "color/image_raw|aligned_depth_to_color/image_raw|color/camera_info"
+```
+
+Check that color and aligned depth are publishing:
+
+```bash
+ros2 topic hz /camera/camera/color/image_raw
+ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
+```
+
+### 7.4 Verify the raw camera view
+
+Terminal 2:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+ros2 run rqt_image_view rqt_image_view
+```
+
+First select:
+
+```text
+/camera/camera/color/image_raw
+```
+
+The overhead view should clearly show the complete target object, as in the
+current experiment. Ensure that the target is not merged visually with the
+robot, cardboard platform or black table covering. Next select:
+
+```text
+/camera/camera/aligned_depth_to_color/image_raw
+```
+
+Verify that the target area contains valid, stable depth rather than zero or
+flickering measurements.
+
+### 7.5 Run the localizer
+
+Terminal 3:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+
+ros2 run fr3_vision_sorting camera_object_localizer
+```
+
+Expected startup information includes the received camera intrinsics and
+optical-frame name. The node should then print detected camera-frame
+coordinates similar to:
+
+```text
+Xc=0.0123 m, Yc=0.0410 m, Zc=0.4580 m
+```
+
+The exact values depend on the object's actual position.
+
+### 7.6 Inspect the published 3D point
+
+Terminal 4:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+
+ros2 topic echo /object_point_camera
+```
+
+A valid message should resemble:
+
+```yaml
+header:
+  frame_id: camera_color_optical_frame
+point:
+  x: 0.0123
+  y: 0.0410
+  z: 0.4580
+```
+
+Confirm the message rate:
+
+```bash
+ros2 topic hz /object_point_camera
+```
+
+If no message appears, check the localizer terminal. Common causes are an
+incorrect HSV color range, a contour smaller than the minimum-area threshold,
+invalid depth, mismatched topic names or image synchronization failure.
+
+### 7.7 Inspect the annotated result
+
+In `rqt_image_view`, select:
+
+```text
+/camera_object_localizer/annotated_image
+```
+
+A successful detection must show:
+
+- A contour around the intended target only.
+- A center marker at the target's visual center.
+- The detected pixel `(u, v)`.
+- The calculated `(Xc, Yc, Zc)` in metres.
+- A stable detection across multiple frames.
+
+If the contour detects the cardboard, table or robot instead of the target,
+adjust the HSV limits under the actual laboratory lighting. Do not proceed by
+accepting the wrong contour.
+
+### 7.8 Validate the coordinate directions
+
+Move the target by hand while keeping the camera fixed:
+
+| Target movement in the image | Expected coordinate change |
+|---|---|
+| Move right | `u` increases and `Xc` increases |
+| Move left | `u` decreases and `Xc` decreases |
+| Move down | `v` increases and `Yc` increases |
+| Move up | `v` decreases and `Yc` decreases |
+| Move closer to the camera | `Zc` decreases |
+| Move farther from the camera | `Zc` increases |
+
+These are camera optical-frame directions. With an overhead camera, they must
+not be interpreted as FR3 base-frame directions until Stage 6 calibration is
+complete.
+
+### 7.9 Check metric accuracy
+
+1. Place the target near the optical center.
+2. Measure the physical camera-to-target distance with a ruler or tape measure.
+3. Record at least 30 published `Zc` samples.
+4. Compare their median with the physical distance.
+5. Repeat at several positions within the intended workspace.
+
+A useful test record is:
+
+| Test | Physical distance | Median reported `Zc` | Absolute error | Stable detection? |
+|---|---:|---:|---:|---|
+| Center | ___ m | ___ m | ___ m | Yes/No |
+| Left | ___ m | ___ m | ___ m | Yes/No |
+| Right | ___ m | ___ m | ___ m | Yes/No |
+
+Also verify that `Xc` and `Yc` approach zero when the selected target point
+is placed near `(cx, cy)`.
+
+### 7.10 Test failure handling
+
+Deliberately perform perception-only failure tests:
+
+- Remove the target: the node should publish no new object point.
+- Cover the target: detection should stop rather than jump to another object.
+- Place the target outside the depth range: invalid depth should be rejected.
+- Temporarily block the camera: the node should not publish fabricated XYZ.
+- Move the target partly outside the image: small or incomplete contours should
+  be rejected.
+- Change the lighting: verify whether HSV segmentation remains reliable.
+
+The node must fail safely by withholding the 3D point. It must never reuse a
+stale detection as though it were current.
+
+## 8. Stage 5 Validation Criteria
 
 Stage 5 is complete only when:
 
@@ -279,7 +512,7 @@ Stage 5 is complete only when:
 - Moving the cube left, right, forward and backward changes XYZ consistently.
 - The result is visualized and verified before any robot motion is permitted.
 
-## 8. Software Boundary
+## 9. Software Boundary
 
 Keep the working motion and perception systems separate:
 
@@ -295,7 +528,7 @@ Do not modify the saved `GRASP` pose or `automatic_pick_place_demo.py` during th
 
 Stage 6 will estimate the transform between the camera optical frame and `fr3_link0`. Only after that transform is validated in RViz should camera measurements be converted into robot-base coordinates and used to generate a dynamic pre-grasp pose.
 
-## 9. Relevant Information — Pixels and 3D Perception
+## 10. Relevant Information — Pixels and 3D Perception
 
 ### What is a pixel?
 
