@@ -528,7 +528,252 @@ Do not modify the saved `GRASP` pose or `automatic_pick_place_demo.py` during th
 
 Stage 6 will estimate the transform between the camera optical frame and `fr3_link0`. Only after that transform is validated in RViz should camera measurements be converted into robot-base coordinates and used to generate a dynamic pre-grasp pose.
 
-## 10. Relevant Information — Pixels and 3D Perception
+## 10. Troubleshooting — RealSense D405 in Docker
+
+During Stage 5 testing, the D405 may be visible to the Linux USB layer but still unavailable to librealsense and the ROS 2 RealSense driver.
+
+### 10.1 Observed failure
+
+The host Ubuntu machine detected the D405 correctly:
+
+```text
+Bus 001 Device 015: ID 8086:0b5b Intel Corp. Intel(R) RealSense(TM) Depth Camera 405
+```
+
+Inside the Docker container, `lsusb` also detected the camera:
+
+```text
+Bus 001 Device 015: ID 8086:0b5b Intel(R) RealSense(TM) Depth Camera 405
+```
+
+However, librealsense could not open the device:
+
+```bash
+rs-enumerate-devices
+```
+
+returned:
+
+```text
+No device detected. Is it plugged in?
+```
+
+The ROS 2 driver showed the same failure:
+
+```text
+[WARN] [camera.camera]: No RealSense devices were found!
+```
+
+The following warning was also present:
+
+```text
+No valid configuration file found at : /root/.realsense-config.json loading defaults
+```
+
+This configuration-file warning is not the main problem. The important failure is that librealsense cannot enumerate the physical D405.
+
+### 10.2 Diagnostic interpretation
+
+The observed state can be summarized as:
+
+```text
+Physical D405                      ✅
+        ↓
+Ubuntu host lsusb                  ✅
+        ↓
+Docker lsusb                       ✅
+        ↓
+librealsense rs-enumerate-devices  ❌
+        ↓
+realsense2_camera                  ❌
+        ↓
+ROS camera topics                  ❌
+        ↓
+camera_object_localizer.py         cannot run
+```
+
+`lsusb` only proves that the USB descriptor is visible. It does **not** prove that librealsense has access to all required device nodes, including the V4L2 `/dev/video*` interfaces.
+
+Therefore, do not debug the perception Python node until `rs-enumerate-devices` works.
+
+### 10.3 Check the host first
+
+On the Ubuntu host, run:
+
+```bash
+lsusb | grep -i realsense
+ls -l /dev/video*
+v4l2-ctl --list-devices
+```
+
+The D405 should appear in `lsusb`, and RealSense-related V4L2 devices should be visible under `/dev/video*`.
+
+If the host cannot see the D405, troubleshoot the physical connection first:
+
+- Reseat the USB cable.
+- Use a direct USB 3.x port.
+- Avoid an unpowered USB hub.
+- Try another known-good USB cable if available.
+
+### 10.4 Check the container
+
+Inside the ROS 2 container, run:
+
+```bash
+lsusb | grep -i realsense
+ls -l /dev/video*
+v4l2-ctl --list-devices
+rs-enumerate-devices
+```
+
+Use the following interpretation:
+
+| Result | Meaning |
+|---|---|
+| Host `lsusb` fails | Physical/host USB problem |
+| Host `lsusb` works, Docker `lsusb` fails | USB passthrough problem |
+| Docker `lsusb` works, `/dev/video*` missing | Device-node/V4L2 passthrough problem |
+| Docker `lsusb` works, `/dev/video*` exists, `rs-enumerate-devices` fails | librealsense/udev/kernel-access problem |
+| `rs-enumerate-devices` works, ROS driver fails | ROS wrapper/configuration problem |
+
+### 10.5 Docker configuration used for RealSense access
+
+The container should receive the relevant host device nodes, rather than only a narrow USB-bus mount.
+
+Recommended `docker-compose.yml` hardware configuration:
+
+```yaml
+services:
+  fr3_ros:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: fr3_ros
+
+    privileged: true
+    network_mode: host
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      DISPLAY: ${DISPLAY}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+
+    volumes:
+      - ./ros2_ws:/workspace/ros2_ws
+      - /dev:/dev
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+    device_cgroup_rules:
+      - "c 81:* rmw"
+      - "c 189:* rmw"
+
+    working_dir: /workspace
+    command: bash
+```
+
+Relevant device classes:
+
+```text
+81  → V4L2/video devices
+189 → USB devices
+```
+
+A configuration that mounts only:
+
+```yaml
+- /dev/bus/usb:/dev/bus/usb
+```
+
+may allow `lsusb` to detect the camera while still leaving required video device interfaces unavailable to librealsense.
+
+### 10.6 Recreate the container after changing device access
+
+Runtime device permissions are established when the container is created. After modifying `docker-compose.yml`, recreate it:
+
+```bash
+docker compose down
+docker compose build
+docker compose up -d
+```
+
+Enter the new container:
+
+```bash
+docker exec -it fr3_ros bash
+```
+
+Then repeat the validation chain:
+
+```bash
+lsusb | grep -i realsense
+ls -l /dev/video*
+v4l2-ctl --list-devices
+rs-enumerate-devices
+```
+
+Do not proceed to ROS until `rs-enumerate-devices` can enumerate the D405.
+
+### 10.7 Validate librealsense before ROS
+
+A successful SDK test should report the D405 device information rather than:
+
+```text
+No device detected. Is it plugged in?
+```
+
+Once the SDK sees the device, launch the ROS wrapper:
+
+```bash
+ros2 launch realsense2_camera rs_launch.py \
+  align_depth.enable:=true \
+  enable_sync:=true \
+  pointcloud.enable:=true
+```
+
+Then verify:
+
+```bash
+ros2 topic list | grep camera
+```
+
+The important Stage 5 topics are:
+
+```text
+/camera/camera/color/image_raw
+/camera/camera/color/camera_info
+/camera/camera/aligned_depth_to_color/image_raw
+```
+
+### 10.8 Troubleshooting rule
+
+Use this order whenever the RealSense camera stops working:
+
+```text
+1. Physical connection
+        ↓
+2. Host lsusb
+        ↓
+3. Host /dev/video* and v4l2-ctl
+        ↓
+4. Docker lsusb
+        ↓
+5. Docker /dev/video* and v4l2-ctl
+        ↓
+6. rs-enumerate-devices
+        ↓
+7. realsense2_camera
+        ↓
+8. ROS camera topics
+        ↓
+9. camera_object_localizer.py
+```
+
+This prevents debugging higher-level perception code when the problem is actually at the USB, device-node, librealsense, or ROS-driver layer.
+
+## 11. Relevant Information — Pixels and 3D Perception
 
 ### What is a pixel?
 
