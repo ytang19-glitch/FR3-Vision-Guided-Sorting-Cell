@@ -814,6 +814,50 @@ Use this order whenever the RealSense camera stops working:
 
 This debugging order separates hardware problems from Docker problems and prevents wasting time modifying higher-level ROS or perception code when the underlying camera SDK cannot see the device.
 
+### 10.12 Troubleshooting `/object_point_camera`
+
+If `ros2 topic echo /object_point_camera` or `ros2 topic hz /object_point_camera` shows no data, debug the ROS graph from the node outward instead of immediately changing the perception code.
+
+Use this flow:
+
+```text
+Is node running?
+    ↓
+ros2 node list
+    ↓
+Does node advertise publisher?
+    ↓
+ros2 node info /camera_object_localizer
+    ↓
+Does topic exist?
+    ↓
+ros2 topic list
+    ↓
+Does data arrive?
+    ↓
+ros2 topic echo /object_point_camera
+```
+
+Recommended commands:
+
+```bash
+ros2 node list
+ros2 node info /camera_object_localizer
+ros2 topic list | grep object
+ros2 topic echo /object_point_camera
+ros2 topic hz /object_point_camera
+```
+
+Interpret the result in this order:
+
+- If `/camera_object_localizer` is missing from `ros2 node list`, the node is not running or it exited with an error.
+- If the node is present but `/object_point_camera` is not listed under **Publishers** in `ros2 node info`, inspect the publisher creation and topic name in `camera_object_localizer.py`.
+- If the topic exists but `echo` receives no messages, the node may be withholding output because no valid object/depth detection is available.
+- Check the localizer terminal for HSV segmentation failure, minimum-contour filtering, invalid depth, wrong input topic names, or synchronization failure.
+- ROS 2 topic names must not contain hyphens. Use `/object_point_camera`, not `/object_point-camera`.
+
+This node/topic flowchart should be used only after the D405 driver and required camera topics are already confirmed working.
+
 ## 11. Relevant Information — Pixels and 3D Perception
 
 ### What is a pixel?
