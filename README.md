@@ -549,3 +549,222 @@ Rebuild Docker after changing the `Dockerfile`. Use `colcon build` for ROS packa
 ## Safety
 
 This repository is an educational and research project. Validate perception, transforms, collision geometry, and motion planning in simulation before using a physical robot. Begin real-robot tests at low speed with supervision and accessible safety controls.
+
+
+
+## Docker File Responsibilities
+
+This project uses three main Docker-related files. Each one has a different responsibility:
+
+```text
+Dockerfile
+    ↓
+Defines WHAT software is installed
+    ↓
+compose.yaml
+    ↓
+Defines HOW the container runs and connects to hardware
+    ↓
+start_container.sh
+    ↓
+Provides an easy way to start and enter the environment
+    ↓
+ROS 2 / FR3 / RealSense applications
+```
+
+### `Dockerfile` — software environment
+
+The `Dockerfile` defines the software installed inside the Docker image.
+
+For this project, that includes components such as:
+
+* ROS 2 Jazzy
+* MoveIt 2
+* Franka ROS 2 packages
+* Intel RealSense ROS packages
+* OpenCV and `cv_bridge`
+* Python tools
+* ROS development utilities
+
+Conceptually:
+
+```text
+Dockerfile
+    ↓
+ROS 2 Jazzy
+    ↓
+MoveIt 2 + Franka software
+    ↓
+RealSense + OpenCV
+    ↓
+Project dependencies
+    ↓
+Docker image
+```
+
+Therefore:
+
+> **Dockerfile = What software should exist inside the robotics environment?**
+
+If a ROS package, Python dependency, or system library is missing, the `Dockerfile` is usually the first place to check.
+
+---
+
+### `compose.yaml` — runtime and hardware configuration
+
+`compose.yaml` determines how the Docker image is started as a container.
+
+For robotics, this is especially important because the software must communicate with physical hardware.
+
+Its responsibilities can include:
+
+```text
+compose.yaml
+    │
+    ├── Host networking
+    │       ↓
+    │    ROS 2 / FR3 communication
+    │
+    ├── USB access
+    │       ↓
+    │    Intel RealSense D405
+    │
+    ├── Volume mounting
+    │       ↓
+    │    Source code / ROS workspace
+    │
+    └── Container permissions
+            ↓
+         Hardware access
+```
+
+For example, installing the RealSense ROS driver in the `Dockerfile` does **not** automatically allow Docker to see the physical D405.
+
+The container must also receive the correct USB access through `compose.yaml`.
+
+Likewise, FR3 communication depends on the appropriate networking configuration.
+
+Therefore:
+
+> **compose.yaml = How should the container run and communicate with the host, network, files, and hardware?**
+
+---
+
+### `start_container.sh` — developer convenience
+
+`start_container.sh` is a shell script used to simplify the development workflow.
+
+Instead of manually running several commands such as:
+
+```bash
+docker compose up -d
+docker exec -it fr3_vision_sorting bash
+```
+
+the developer can use:
+
+```bash
+./start_container.sh
+```
+
+The script may also source ROS environments or perform other startup tasks automatically.
+
+Conceptually:
+
+```text
+start_container.sh
+        ↓
+Docker Compose
+        ↓
+Docker container
+        ↓
+ROS 2 environment
+```
+
+Therefore:
+
+> **start_container.sh = How can the developer start the robotics environment conveniently?**
+
+---
+
+### Complete Docker architecture
+
+```text
+                     Ubuntu Host PC
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+       RealSense D405              Franka FR3
+              │                       │
+             USB                   Ethernet
+              │                       │
+              └───────────┬───────────┘
+                          │
+                    compose.yaml
+                          │
+                hardware + networking
+                          │
+                          ▼
+                 Docker Container
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+     ROS 2 Jazzy       MoveIt 2          OpenCV
+        │                 │                 │
+        │            franka_ros2       Perception
+        │                 │                 │
+        └─────────────────┼─────────────────┘
+                          │
+                          ▼
+              FR3 Vision-Guided Sorting
+```
+
+The software inside the container is defined by the `Dockerfile`.
+
+The way the container interacts with the computer and physical hardware is defined by `compose.yaml`.
+
+The developer enters this environment conveniently through `start_container.sh`.
+
+### Debugging by layer
+
+| Problem                                     | First place to investigate       |
+| ------------------------------------------- | -------------------------------- |
+| ROS package missing                         | `Dockerfile`                     |
+| Python/OpenCV dependency missing            | `Dockerfile`                     |
+| RealSense ROS package missing               | `Dockerfile`                     |
+| RealSense installed but camera not detected | `compose.yaml`, USB access, host |
+| FR3 cannot communicate with ROS 2           | `compose.yaml`, host networking  |
+| Source-code changes are not visible         | `compose.yaml` volumes           |
+| Starting Docker requires too many commands  | `start_container.sh`             |
+| Robot/perception behavior is incorrect      | ROS 2 application code           |
+
+A useful debugging model is:
+
+```text
+Software missing?
+      ↓
+Dockerfile
+
+Software exists but hardware is unavailable?
+      ↓
+compose.yaml / host configuration
+
+Environment works but startup is inconvenient?
+      ↓
+start_container.sh
+
+Environment and hardware work but robot behavior is wrong?
+      ↓
+ROS 2 perception / planning / control code
+```
+
+### Summary
+
+| File                 | Main question                                       |
+| -------------------- | --------------------------------------------------- |
+| `Dockerfile`         | **What software is installed?**                     |
+| `compose.yaml`       | **How does the container run and access hardware?** |
+| `start_container.sh` | **How do I start the environment easily?**          |
+
+Together, these files provide a reproducible software and hardware-integration environment for the FR3 vision-guided manipulation system.
+
