@@ -537,16 +537,10 @@ During Stage 5 testing, the D405 may be visible to the Linux USB layer but still
 The host Ubuntu machine detected the D405 correctly:
 
 ```text
-Bus 001 Device 015: ID 8086:0b5b Intel Corp. Intel(R) RealSense(TM) Depth Camera 405
+Bus 001 Device 016: ID 8086:0b5b Intel Corp. Intel(R) RealSense(TM) Depth Camera 405
 ```
 
-Inside the Docker container, `lsusb` also detected the camera:
-
-```text
-Bus 001 Device 015: ID 8086:0b5b Intel(R) RealSense(TM) Depth Camera 405
-```
-
-However, librealsense could not open the device:
+Inside the Docker container, `lsusb` also detected the camera, and `/dev/video0` through `/dev/video5` were present. However, librealsense still failed:
 
 ```bash
 rs-enumerate-devices
@@ -558,70 +552,111 @@ returned:
 No device detected. Is it plugged in?
 ```
 
-The ROS 2 driver showed the same failure:
+The ROS 2 driver reported:
 
 ```text
 [WARN] [camera.camera]: No RealSense devices were found!
 ```
 
-The following warning was also present:
+The warning
 
 ```text
 No valid configuration file found at : /root/.realsense-config.json loading defaults
 ```
 
-This configuration-file warning is not the main problem. The important failure is that librealsense cannot enumerate the physical D405.
+was also present, but this was not the root cause. The important failure was that librealsense inside the container could not enumerate the physical D405.
 
-### 10.2 Diagnostic interpretation
+### 10.2 Host-vs-container result that isolated the problem
 
-The observed state can be summarized as:
+Running `rs-enumerate-devices` directly on the Ubuntu host succeeded and returned the D405 information, including:
+
+```text
+Name                : Intel RealSense D405
+Product Id          : 0B5B
+Firmware Version    : 5.16.0.1
+Connection Type     : USB
+Usb Type Descriptor : 2.1
+```
+
+The host device path also referenced a RealSense V4L2 node such as:
+
+```text
+.../video4linux/video6
+```
+
+Therefore the final diagnostic state was:
 
 ```text
 Physical D405                      ✅
-        ↓
-Ubuntu host lsusb                  ✅
-        ↓
-Docker lsusb                       ✅
-        ↓
-librealsense rs-enumerate-devices  ❌
-        ↓
-realsense2_camera                  ❌
-        ↓
-ROS camera topics                  ❌
-        ↓
-camera_object_localizer.py         cannot run
+Ubuntu host USB                    ✅
+Ubuntu host librealsense           ✅
+Docker USB visibility              ✅
+Docker /dev/video* visibility      partial / inconsistent
+Docker librealsense                ❌
+ROS realsense2_camera in Docker    ❌
 ```
 
-`lsusb` only proves that the USB descriptor is visible. It does **not** prove that librealsense has access to all required device nodes, including the V4L2 `/dev/video*` interfaces.
+This is important because it rules out a defective camera, bad firmware and a broken host librealsense installation. The remaining problem is isolated to **container device/sysfs visibility or Docker runtime configuration**.
 
-Therefore, do not debug the perception Python node until `rs-enumerate-devices` works.
+### 10.3 Why `lsusb` alone was misleading
 
-### 10.3 Check the host first
+`lsusb` only proves that the container can read the USB descriptor. It does not prove that librealsense can correctly associate the USB device with its V4L2 and sysfs interfaces.
 
-On the Ubuntu host, run:
+The host saw the RealSense through a path involving `video6`, while the container initially exposed only `video0` through `video5`. This mismatch suggested that the container did not have the same device-node/sysfs view as the host.
+
+Therefore, do not debug `camera_object_localizer.py` or ROS topic names until `rs-enumerate-devices` works inside the container.
+
+### 10.4 Dockerfile cleanup vs actual fix
+
+The Dockerfile was cleaned by removing duplicate package entries such as repeated `ros-jazzy-cv-bridge` and `python3-opencv` lines.
+
+This cleanup is useful because it keeps the image definition simpler and avoids redundant package declarations, but it **does not fix the RealSense enumeration failure**.
+
+The relevant packages remain:
+
+```text
+usbutils
+v4l-utils
+ros-jazzy-realsense2-camera
+ros-jazzy-realsense2-description
+ros-jazzy-cv-bridge
+python3-opencv
+```
+
+The actual RealSense issue is at runtime, where Docker must expose the same hardware interfaces that work on the host.
+
+### 10.5 Check the host first
+
+On the Ubuntu host:
 
 ```bash
 lsusb | grep -i realsense
-ls -l /dev/video*
+rs-enumerate-devices
+```
+
+If `rs-enumerate-devices` succeeds on the host, do not reinstall the host RealSense stack. Move immediately to Docker runtime debugging.
+
+If needed, install V4L2 tools on the host with:
+
+```bash
+sudo apt install v4l-utils
+```
+
+and then inspect:
+
+```bash
 v4l2-ctl --list-devices
+ls -l /dev/video*
 ```
 
-The D405 should appear in `lsusb`, and RealSense-related V4L2 devices should be visible under `/dev/video*`.
+### 10.6 Check the container
 
-If the host cannot see the D405, troubleshoot the physical connection first:
-
-- Reseat the USB cable.
-- Use a direct USB 3.x port.
-- Avoid an unpowered USB hub.
-- Try another known-good USB cable if available.
-
-### 10.4 Check the container
-
-Inside the ROS 2 container, run:
+Inside the ROS 2 container:
 
 ```bash
 lsusb | grep -i realsense
 ls -l /dev/video*
+ls -l /sys/class/video4linux
 v4l2-ctl --list-devices
 rs-enumerate-devices
 ```
@@ -630,17 +665,15 @@ Use the following interpretation:
 
 | Result | Meaning |
 |---|---|
-| Host `lsusb` fails | Physical/host USB problem |
-| Host `lsusb` works, Docker `lsusb` fails | USB passthrough problem |
-| Docker `lsusb` works, `/dev/video*` missing | Device-node/V4L2 passthrough problem |
-| Docker `lsusb` works, `/dev/video*` exists, `rs-enumerate-devices` fails | librealsense/udev/kernel-access problem |
-| `rs-enumerate-devices` works, ROS driver fails | ROS wrapper/configuration problem |
+| Host `rs-enumerate-devices` fails | Host/USB/librealsense problem |
+| Host works, Docker `lsusb` fails | USB passthrough problem |
+| Docker `lsusb` works, `/dev/video*` missing | V4L2 device passthrough problem |
+| Docker sees video nodes but host and container numbering/sysfs differ | Container `/dev` or `/sys` visibility problem |
+| Docker `rs-enumerate-devices` works, ROS fails | ROS wrapper/configuration problem |
 
-### 10.5 Docker configuration used for RealSense access
+### 10.7 Docker configuration used for RealSense access
 
-The container should receive the relevant host device nodes, rather than only a narrow USB-bus mount.
-
-Recommended `docker-compose.yml` hardware configuration:
+The updated container configuration uses host networking and broad device access for the FR3 and D405:
 
 ```yaml
 services:
@@ -664,6 +697,7 @@ services:
     volumes:
       - ./ros2_ws:/workspace/ros2_ws
       - /dev:/dev
+      - /sys:/sys:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
 
     device_cgroup_rules:
@@ -681,17 +715,19 @@ Relevant device classes:
 189 → USB devices
 ```
 
-A configuration that mounts only:
+The `/dev:/dev` mount exposes the host device nodes. The `/sys:/sys:ro` mount gives userspace tools a consistent read-only view of the host device topology used to associate USB and V4L2 interfaces.
+
+A narrow mount such as:
 
 ```yaml
 - /dev/bus/usb:/dev/bus/usb
 ```
 
-may allow `lsusb` to detect the camera while still leaving required video device interfaces unavailable to librealsense.
+may be enough for `lsusb` while still being insufficient for librealsense.
 
-### 10.6 Recreate the container after changing device access
+### 10.8 Recreate the container after changing runtime access
 
-Runtime device permissions are established when the container is created. After modifying `docker-compose.yml`, recreate it:
+Changes to `docker-compose.yml` do not fully apply to an already-created container. Recreate it:
 
 ```bash
 docker compose down
@@ -699,32 +735,37 @@ docker compose build
 docker compose up -d
 ```
 
-Enter the new container:
+Then enter it again:
 
 ```bash
 docker exec -it fr3_ros bash
 ```
 
-Then repeat the validation chain:
+Run:
 
 ```bash
 lsusb | grep -i realsense
 ls -l /dev/video*
-v4l2-ctl --list-devices
+ls -l /sys/class/video4linux
 rs-enumerate-devices
 ```
 
-Do not proceed to ROS until `rs-enumerate-devices` can enumerate the D405.
+Only when `rs-enumerate-devices` succeeds should the ROS driver be tested.
 
-### 10.7 Validate librealsense before ROS
+### 10.9 USB speed observation
 
-A successful SDK test should report the D405 device information rather than:
+The D405 was observed on the host as:
 
 ```text
-No device detected. Is it plugged in?
+480M
+Usb Type Descriptor : 2.1
 ```
 
-Once the SDK sees the device, launch the ROS wrapper:
+This means it was negotiating as USB 2.x rather than SuperSpeed USB 3.x. The camera still enumerated successfully on the host, so this was **not the root cause of the Docker failure**. However, a USB 3.x port/cable is preferable for higher camera bandwidth and more reliable stream profiles.
+
+### 10.10 Validate librealsense before ROS
+
+Once the SDK sees the device inside Docker, launch:
 
 ```bash
 ros2 launch realsense2_camera rs_launch.py \
@@ -747,7 +788,7 @@ The important Stage 5 topics are:
 /camera/camera/aligned_depth_to_color/image_raw
 ```
 
-### 10.8 Troubleshooting rule
+### 10.11 Troubleshooting rule
 
 Use this order whenever the RealSense camera stops working:
 
@@ -756,13 +797,13 @@ Use this order whenever the RealSense camera stops working:
         ↓
 2. Host lsusb
         ↓
-3. Host /dev/video* and v4l2-ctl
+3. Host rs-enumerate-devices
         ↓
 4. Docker lsusb
         ↓
-5. Docker /dev/video* and v4l2-ctl
+5. Docker /dev/video* and /sys/class/video4linux
         ↓
-6. rs-enumerate-devices
+6. Docker rs-enumerate-devices
         ↓
 7. realsense2_camera
         ↓
@@ -771,7 +812,7 @@ Use this order whenever the RealSense camera stops working:
 9. camera_object_localizer.py
 ```
 
-This prevents debugging higher-level perception code when the problem is actually at the USB, device-node, librealsense, or ROS-driver layer.
+This debugging order separates hardware problems from Docker problems and prevents wasting time modifying higher-level ROS or perception code when the underlying camera SDK cannot see the device.
 
 ## 11. Relevant Information — Pixels and 3D Perception
 
