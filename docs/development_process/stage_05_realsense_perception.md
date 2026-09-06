@@ -128,7 +128,7 @@ intrinsics.
 
 Use the `frame_id` supplied in the message header as the camera optical frame. Do not assume the frame name without checking the published message.
 
-## 5. Pixel and Depth to Camera-Frame XYZ
+## 5. Pixel and Depth to Camera-Frame XYZ and relevant formula
 
 For an object center at pixel `(u, v)` with depth `Zc` in metres:
 
@@ -169,6 +169,7 @@ Their physical meaning is:
 3. Multiplying by the measured depth `Zc` scales that direction into a
    physical displacement in metres.
 
+
 The signs follow the ROS optical-frame convention:
 
 - If `u > cx`, then `Xc > 0`: the point is to the image's right.
@@ -188,8 +189,24 @@ P_camera = Zc K⁻¹[v]
 P_camera = [Xc, Yc, Zc]ᵀ
 ```
 
-One RGB pixel describes a ray rather than a unique 3D point. The aligned-depth
-measurement `Zc` determines where the object lies along that ray.
+One RGB pixel describes a ray rather than a unique 3D point.
+The aligned-depth: measurement `Zc` determines where the object lies along that ray.
+
+### Explanation of formula and relevant parameters:
+
+#### u ,v 
+
+u, v are the pixel coordinates of the object detected by us.
+
+```bash
+(0,0) ------------------------> u
+  |
+  |
+  |            ● cube
+  |          (u,v)
+  |
+  v
+```
 
 Using the measured D405 values and the example
 
@@ -212,10 +229,37 @@ Therefore:
 ```text
 P_camera = [0.0699, 0.0557, 0.4000] m
 ```
+.
 
 This point is approximately **6.99 cm to the right**, **5.57 cm down**, and
 **40.00 cm in front** of the camera optical origin. It is not yet expressed in
 the FR3 base frame `fr3_link0`.
+
+**These values change when the cube moves in the image**
+
+
+#### cx and cy
+
+cx, cy describe the camera itself. They are the principal point from the camera intrinsic calibration.
+
+
+
+
+By intuition:
+```bash
+u,v = "Where is the cube in my picture?"
+
+cx,cy = "Where is the camera looking straight ahead?"
+
+Zc = "How far away is the cube?"
+
+fx,fy = "How does pixel displacement relate to viewing angle?"
+
+Xc,Yc,Zc = "Where is the cube physically relative to my camera
+```
+
+
+### Check the depth image encoding
 
 Confirm the depth image encoding before conversion:
 
