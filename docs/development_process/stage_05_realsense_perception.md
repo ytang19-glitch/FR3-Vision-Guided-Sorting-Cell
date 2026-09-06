@@ -503,6 +503,70 @@ If the contour detects the cardboard, table or robot instead of the target,
 adjust the HSV limits under the actual laboratory lighting. Do not proceed by
 accepting the wrong contour.
 
+
+### 7.7.1 Keep the localizer running for live annotations
+
+**Yes: keep `ros2 run fr3_vision_sorting camera_object_localizer` running
+while you want live detection overlays and calculated XYZ updates.** Launch it
+once and leave that process running; do not repeatedly start additional copies.
+
+Use separate terminals in the same ROS 2 container. In every new terminal, source:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+```
+
+| Terminal | Command | Purpose |
+|---|---|---|
+| 1 | `ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true enable_sync:=true` | Keep color, aligned depth and CameraInfo available |
+| 2 | `ros2 run fr3_vision_sorting camera_object_localizer` | Detect the red target, calculate XYZ and publish the annotated image |
+| 3 | `ros2 run rqt_image_view rqt_image_view` | Display the selected image topic |
+| 4 (optional) | `ros2 topic echo /object_point_camera` | Print the calculated coordinates |
+
+If the camera driver is already running, reuse it instead of starting a second
+instance. The viewer may already be open too.
+
+In the viewer, select the full topic name:
+
+```text
+/camera_object_localizer/annotated_image
+```
+
+The observed successful output shows the camera view with a target outline,
+center marker, pixel coordinates, contour area and XYZ text. This confirms that
+the annotation pipeline is working for that frame. Check that the outline is
+on the intended cube; an overlay alone does not establish measurement accuracy.
+
+### What happens when a program stops?
+
+| Action | Effect |
+|---|---|
+| Press Ctrl+C in the localizer terminal | No new annotated images or object points from that process; the raw camera stream can continue |
+| Stop the camera driver | No new camera inputs; the localizer cannot keep producing fresh detections after any queued pairs are processed |
+| Close rqt_image_view | Only the viewer closes; camera and localizer can continue |
+| Stop topic echo | Only terminal printing stops; the localizer still calculates and publishes |
+
+A viewer can retain the last image or show a blank/placeholder after updates
+stop. A frozen frame is not evidence of a current detection. A gray display
+alone does not identify the cause.
+
+If annotations stop updating, check from another terminal:
+
+```bash
+ros2 topic info /camera_object_localizer/annotated_image --verbose
+ros2 topic hz /camera_object_localizer/annotated_image
+```
+
+Run the rate command on its own and press Ctrl+C when finished. Normally there
+should be one annotated-image publisher from the localizer. If raw color is
+live but annotations are not, inspect the localizer terminal for errors or
+missing synchronized depth input.
+
+`rqt_image_view` and `ros2 topic echo` are subscribers: they display data.
+They do not run the detection algorithm or calculate the object coordinates.
+The localizer performs those calculations.
+
 ### 7.8 Validate the coordinate directions
 
 Move the target by hand while keeping the camera fixed:
