@@ -257,6 +257,16 @@ fx,fy = "How does pixel displacement relate to viewing angle?"
 
 Xc,Yc,Zc = "Where is the cube physically relative to my camera
 ```
+In summary:
+
+
+| Coordinate          |              Example | Meaning                                           |
+| ------------------- | -------------------: | ------------------------------------------------- |
+| Pixel `(u,v)`       |          `(500,300)` | Where cube appears **in the image**               |
+| Camera `(Xc,Yc,Zc)` | `(0.07,0.056,0.40)m` | Where cube physically is **relative to camera**   |
+| Robot `(Xb,Yb,Zb)`  |  `(0.42,0.12,0.03)m` | Where cube physically is **relative to FR3 base** |
+
+
 
 
 ### Check the depth image encoding
