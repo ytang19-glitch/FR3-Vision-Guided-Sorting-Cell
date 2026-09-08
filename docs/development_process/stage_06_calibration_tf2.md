@@ -166,6 +166,17 @@ slip relative to the selected tool frame during collection.
 **Checkpoint:** printed dimensions are measured, the board is flat, its pose
 can be observed clearly, and its attachment is rigid.
 
+In package.xml:
+
+| Dependency       | Used for                              |
+| ---------------- | ------------------------------------- |
+| `std_msgs`       | Publishing reprojection error         |
+| `python3-numpy`  | Matrix calculations                   |
+| `python3-opencv` | ChArUco detection and pose estimation |
+| `python3-scipy`  | Rotation-to-quaternion conversion     |
+
+
+
 ### Step 3 — Detect the board's position and orientation
 
 Implement the separate `calibration_board_detector.py` described below.
