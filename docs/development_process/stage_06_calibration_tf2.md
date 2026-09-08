@@ -137,7 +137,10 @@ camera model. Aligning depth to color does not rectify the color image.
 
 ### Step 2 — Prepare a rigid, measured board
 The main purpose of a ChArUco board in your project is to help your D405 camera and FR3 robot agree on where things are in the real world.
-
+Editing square and marker side: 
+```bash
+https://calib.io/pages/camera-calibration-pattern-generator?srsltid=AfmBOoqsVWZyesKWxj5m6iKlV0opKS-32rxhFPMR3SgO4wHWIJIDAhTE
+```
 Print a checkerboard or ChArUco board at actual size, attach it to flat rigid
 backing, and measure the printed pattern.
 
