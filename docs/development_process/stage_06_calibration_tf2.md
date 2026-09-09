@@ -71,6 +71,214 @@ itself.
 
 ---
 
+## Immediate next steps — from partial ArUco detection to board pose
+
+The current ChArUco debugging state has improved from:
+
+```text
+Detected: 0/17 markers
+```
+
+to values such as:
+
+```text
+Detected: 7/17 markers
+Detected: 8/17 markers
+Detected: 9/17 markers
+```
+
+This is significant because it confirms that the D405 image stream, ROS 2 image
+transport, `cv_bridge`, OpenCV 4.6, and 4x4 ArUco decoding are all functioning.
+
+Do **not** move on to TF2 publication or autonomous FR3 motion yet. The next
+milestone is:
+
+```text
+stable ArUco detection
+        ↓
+ChArUco corner detection
+        ↓
+board 6D pose in the D405 camera frame
+```
+
+### A. Improve current marker detection
+
+During detector testing, move the board closer to the D405 so the individual
+markers contain more pixels. Keep the whole pattern visible and avoid extreme
+tilt, motion blur, glare, and strong overexposure.
+
+A useful practical starting point is to let the ChArUco board occupy roughly
+30–60% of the image width. Exact `17/17` detection is not required on every
+frame, but detection should be stable enough across useful board poses for the
+corner and pose estimator to work reliably.
+
+### B. Confirm the physical board dimensions before metric pose estimation
+
+The source PDF is labeled approximately as:
+
+```text
+5 × 7 squares
+Checker size: 22 mm
+Marker size: 16 mm
+Dictionary: ArUco DICT_4X4
+```
+
+The physical print has been measured at approximately:
+
+```text
+square side ≈ 20 mm
+marker side ≈ 15 mm
+```
+
+Re-measure carefully before computing metric poses. A good method is to measure
+several adjacent squares together and divide by the number of squares, which
+reduces ruler error.
+
+The physical dimensions do **not** determine whether `detectMarkers()` can
+decode the ArUco pattern. They **do** determine the metric scale of the later
+board pose and therefore directly affect the camera-to-FR3 calibration.
+
+### C. Upgrade from ArUco markers to ChArUco corners
+
+For a board with 5 × 7 squares, the number of inner chessboard corners is:
+
+```text
+(5 - 1) × (7 - 1) = 24
+```
+
+So the detector should evolve from reporting only:
+
+```text
+ArUco markers: N/17
+```
+
+to also reporting something like:
+
+```text
+ArUco markers: 12/17
+ChArUco corners: 18/24
+```
+
+These ChArUco corners are the more useful observations for calibration because
+they can be associated with known metric coordinates on the board.
+
+### D. Estimate the board pose in the camera frame
+
+Once enough ChArUco corners are detected, `calibration_board_detector.py`
+should estimate the board's 6D pose relative to the D405 color optical frame.
+A useful debug output is:
+
+```text
+Markers detected: 14/17
+ChArUco corners: 20/24
+
+Board pose in camera frame:
+X = ... m
+Y = ... m
+Z = ... m
+Roll  = ...
+Pitch = ...
+Yaw   = ...
+Reprojection error = ... px
+```
+
+This transform is the next major Stage 6 milestone:
+
+```text
+T_camera_board
+```
+
+or equivalently the board pose expressed in the camera frame.
+
+### E. Only after board pose is reliable, involve the FR3
+
+Once board pose detection is stable, rigidly attach the ChArUco board to the
+FR3 end effector and collect synchronized camera/robot pose pairs:
+
+```text
+Sample 1:
+T_camera_board
+T_base_tool
+
+Sample 2:
+T_camera_board
+T_base_tool
+
+...
+```
+
+Start with approximately 15–25 useful pose pairs, using meaningfully different
+positions and orientations. Do not collect many nearly identical poses.
+
+The final objective is to solve for:
+
+```text
+T_base_camera
+```
+
+so that object points can be transformed as:
+
+```text
+P_base = T_base_camera · P_camera
+```
+
+and the vision-guided manipulation chain becomes:
+
+```text
+D405
+ ↓
+object detection
+ ↓
+P_camera = (Xc, Yc, Zc)
+ ↓
+T_base_camera
+ ↓
+P_base = (Xb, Yb, Zb)
+ ↓
+PRE_GRASP
+ ↓
+FR3
+```
+
+### F. OpenCV 4.6 compatibility reminder
+
+The installed environment reports:
+
+```text
+OpenCV version: 4.6.0
+```
+
+The newer API:
+
+```python
+cv2.aruco.ArucoDetector(dictionary)
+```
+
+is not available in the current environment. Use the OpenCV 4.6-compatible
+interface:
+
+```python
+dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+parameters = cv2.aruco.DetectorParameters_create()
+
+corners, ids, rejected = cv2.aruco.detectMarkers(
+    frame,
+    dictionary,
+    parameters=parameters,
+)
+```
+
+### G. Current stop/go rule
+
+Do not proceed to `T_base_camera`, TF2 publication, or robot pickup motion until:
+
+1. ArUco detection is stable across useful board poses.
+2. ChArUco corners are being detected consistently.
+3. The physical board dimensions are confirmed.
+4. The D405 color intrinsics and distortion coefficients match the image stream.
+5. `T_camera_board` is stable and passes reprojection checks.
+
+---
 
 ## Start here — eight-step practical walkthrough
 
@@ -137,7 +345,7 @@ camera model. Aligning depth to color does not rectify the color image.
 
 ### Step 2 — Prepare a rigid, measured board
 The main purpose of a ChArUco board in your project is to help your D405 camera and FR3 robot agree on where things are in the real world.
-Editing square and marker side: 
+Editing square and marker side:
 ```bash
 https://calib.io/pages/camera-calibration-pattern-generator?srsltid=AfmBOoqsVWZyesKWxj5m6iKlV0opKS-32rxhFPMR3SgO4wHWIJIDAhTE
 ```
@@ -177,8 +385,6 @@ In package.xml:
 | `python3-numpy`  | Matrix calculations                   |
 | `python3-opencv` | ChArUco detection and pose estimation |
 | `python3-scipy`  | Rotation-to-quaternion conversion     |
-
-
 
 ### Step 3 — Detect the board's position and orientation
 
@@ -236,9 +442,9 @@ fixed-camera frame substitutions.
 
 The result converts a camera point into a base point:
 
-$
+$$
 \mathbf p_b = {}^bR_c\mathbf p_c + {}^bt_c
-$
+$$
 
 | Variable | Practical meaning |
 |---|---|
@@ -544,895 +750,4 @@ Then source ROS again.
 
 ### Stage 5 validation before continuing
 
-Move the target by hand while the camera remains fixed and verify:
-
-| Motion | Expected camera-frame behavior |
-|---|---|
-| Right | `u ↑`, `Xc ↑` |
-| Left | `u ↓`, `Xc ↓` |
-| Down | `v ↑`, `Yc ↑` |
-| Up | `v ↓`, `Yc ↓` |
-| Closer to camera | `Zc ↓` |
-| Farther from camera | `Zc ↑` |
-
-Also confirm that:
-
-- the detector follows the intended red target only;
-- the target is not confused with another red object;
-- the detected contour is stable;
-- depth remains stable on a stationary target;
-- the measured point corresponds to the intended physical surface/marker.
-
-Do not command robot motion from the camera-frame point yet.
-
----
-
-## 4. Understand the eye-to-hand transform
-
-Use notation `T_A_B` for a transform that maps coordinates expressed in frame
-`B` into frame `A`.
-
-For the fixed overhead D405:
-
-| Symbol | Meaning |
-|---|---|
-| `b` | Robot base frame `fr3_link0` |
-| `c` | Camera optical frame `camera_color_optical_frame` |
-| `g` | Chosen robot tool frame, e.g. `fr3_hand_tcp` |
-| `t` | Calibration-target frame |
-| `T_b_c` | Unknown fixed camera pose in robot base |
-| `T_b_g` | Robot tool pose in base frame |
-| `T_c_t` | Calibration-target pose measured by camera |
-| `T_g_t` | Fixed target mounting transform relative to tool |
-
-For every paired measurement:
-
-$$
-{}^bT_g\,{}^gT_t
-=
-{}^bT_c\,{}^cT_t
-$$
-
-The camera is fixed, so `T_b_c` must remain constant while the FR3 moves.
-
----
-
-## 5. Do not use the red marker alone for hand-eye calibration
-
-The red marker is useful for Stage 5 target localization, but it is not enough
-for the calibration workflow described here.
-
-The red detector gives mainly a target centroid and depth:
-
-```text
-(u, v, Z)
-```
-
-which produces a 3D point.
-
-Hand-eye calibration needs a **full target pose**:
-
-```text
-position + orientation
-```
-
-Therefore use a rigid calibration target such as:
-
-- ChArUco board; or
-- checkerboard with known geometry.
-
-A ChArUco board is generally convenient because it provides uniquely
-identifiable corners and robust pose estimation.
-
----
-
-## 6. Prepare the calibration board correctly
-
-Use a rigid, flat printed board.
-
-Record exactly:
-
-- board type;
-- number of squares/markers;
-- square size in metres;
-- marker size if ChArUco is used;
-- ArUco dictionary;
-- printed physical dimensions;
-- board coordinate-frame definition.
-
-Print at **100% / actual size** with printer scaling disabled.
-
-After printing, measure several squares with a ruler or caliper. Do not assume
-the nominal PDF dimensions survived printer scaling.
-
-Mount the board rigidly to the FR3 end effector or a rigid tool fixture.
-
-The board must not move relative to the selected robot tool frame while samples
-are collected.
-
----
-
-## 7. Implement a calibration-target pose detector
-
-`camera_object_localizer.py` is the Stage 5 red-target localizer. Do not turn it
-into the hand-eye calibration detector.
-
-Create a separate node, for example:
-
-```text
-calibration_board_detector.py
-```
-
-Its responsibility should be:
-
-```text
-RGB image
-    ↓
-detect calibration board
-    ↓
-ordered 2D corners
-    ↓
-known 3D board geometry
-    ↓
-PnP / board pose estimation
-    ↓
-T_camera_target
-```
-
-The detector should:
-
-1. Subscribe to the appropriate color image and `CameraInfo`.
-2. Detect ordered board corners/markers.
-3. Use the matching camera model.
-4. Estimate the board pose `T_c_t`.
-5. Draw detected corners and coordinate axes.
-6. Reject bad detections.
-7. Report reprojection error.
-8. Publish or record board translation and orientation.
-9. Preserve the image timestamp.
-
-### Important camera-model note
-
-The Stage 5 pinhole equations are useful for simple target-point localization,
-but calibration-board pose estimation must use the correct camera calibration
-model.
-
-If raw color pixels are used and distortion coefficients are nonzero, use the
-matching distortion coefficients in the PnP/calibration calculation.
-
-Depth alignment is not the same thing as image rectification.
-
----
-
-## 8. Verify the FR3 tool frame
-
-Before recording robot poses, confirm which frame is being used as the tool
-frame.
-
-For example:
-
-```bash
-ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
-```
-
-If that frame is not available in the current configuration, inspect the TF
-tree and select the actual validated end-effector/TCP frame.
-
-Do not silently substitute another frame; document the chosen frame because it
-changes the calibration equations.
-
----
-
-## 9. Collect paired robot and camera poses
-
-For each calibration sample:
-
-1. Move the FR3 to a safe, collision-checked pose.
-2. Keep the calibration board fully visible to the D405.
-3. Wait until the arm is completely stationary.
-4. Detect and record `T_c_t` from the camera.
-5. Look up `T_b_g` from TF at the corresponding image timestamp.
-6. Save both poses as one synchronized pair.
-7. Save detection quality/reprojection error.
-8. Repeat with substantially different robot orientations and positions.
-
-A useful dataset format is:
-
-```yaml
-sample_id: 01
-stamp: ...
-
-T_b_g:
-  translation: [x, y, z]
-  quaternion_xyzw: [qx, qy, qz, qw]
-
-T_c_t:
-  translation: [x, y, z]
-  quaternion_xyzw: [qx, qy, qz, qw]
-
-reprojection_error_px: ...
-```
-
-Use metres throughout.
-
-Use ROS quaternion ordering explicitly:
-
-```text
-[x, y, z, w]
-```
-
-### How many samples?
-
-A practical first dataset is approximately:
-
-```text
-15–25 good pose pairs
-```
-
-plus several held-out poses for validation.
-
-More samples are not automatically better if all poses are nearly identical.
-The robot should provide meaningful rotational diversity about multiple axes.
-
-Avoid collecting only translations with almost identical orientation.
-
----
-
-## 10. Create a paired-pose recorder
-
-Create a separate node such as:
-
-```text
-calibration_pose_recorder.py
-```
-
-Its purpose is to synchronize:
-
-```text
-camera board pose T_c_t
-        +
-robot TF pose T_b_g
-        ↓
-paired calibration sample
-```
-
-The recorder should not move the robot automatically during the first
-calibration experiment.
-
-A safe initial workflow is:
-
-```text
-operator moves robot
-        ↓
-robot stops
-        ↓
-board detection valid
-        ↓
-operator triggers sample save
-        ↓
-record synchronized pair
-```
-
-This keeps motion and data collection logically separate.
-
----
-
-## 11. Solve the eye-to-hand calibration offline
-
-After collecting the pose pairs, solve for:
-
-```text
-T_b_c
-```
-
-An OpenCV approach can use `cv2.calibrateHandEye` with the frame substitutions
-required for the fixed-camera eye-to-hand case.
-
-Illustrative offline code:
-
-```python
-import cv2
-import numpy as np
-
-# Lists of corresponding 4x4 transforms:
-# T_b_g_samples : base <- gripper/tool
-# T_c_t_samples : camera <- calibration target
-
-T_g_b_samples = [
-    np.linalg.inv(T_b_g)
-    for T_b_g in T_b_g_samples
-]
-
-R_b_c, t_b_c = cv2.calibrateHandEye(
-    [T[:3, :3] for T in T_g_b_samples],
-    [T[:3, 3:4] for T in T_g_b_samples],
-    [T[:3, :3] for T in T_c_t_samples],
-    [T[:3, 3:4] for T in T_c_t_samples],
-    method=cv2.CALIB_HAND_EYE_PARK,
-)
-
-T_b_c = np.eye(4)
-T_b_c[:3, :3] = R_b_c
-T_b_c[:3, 3] = np.asarray(t_b_c).reshape(3)
-```
-
-Do not treat solver output as automatically correct.
-
-Check:
-
-```text
-rotation finite                      ✅
-translation finite                   ✅
-RᵀR ≈ I                              ✅
-det(R) ≈ +1                          ✅
-camera location physically plausible ✅
-held-out residuals acceptable        ✅
-```
-
-Also estimate the board mounting transform for each sample:
-
-```python
-mount_estimates = [
-    np.linalg.inv(T_b_g) @ T_b_c @ T_c_t
-    for T_b_g, T_c_t in zip(
-        T_b_g_samples,
-        T_c_t_samples,
-    )
-]
-```
-
-These should be consistent because the board mounting is rigid.
-
----
-
-## 12. Save the calibration result explicitly
-
-Do not leave the final transform only inside a terminal log.
-
-Save a calibration file, for example:
-
-```text
-config/camera_to_fr3_calibration.yaml
-```
-
-Example structure:
-
-```yaml
-parent_frame: fr3_link0
-camera_optical_frame: camera_color_optical_frame
-camera_root_frame: <verify from TF>
-
-translation_m:
-  x: ...
-  y: ...
-  z: ...
-
-quaternion_xyzw:
-  x: ...
-  y: ...
-  z: ...
-  w: ...
-
-camera_profile:
-  width: ...
-  height: ...
-  fps: ...
-
-board:
-  type: charuco
-  square_size_m: ...
-  marker_size_m: ...
-  dictionary: ...
-
-validation:
-  number_of_samples: ...
-  held_out_samples: ...
-  mean_error_mm: ...
-  max_error_mm: ...
-```
-
-Do not insert guessed transform values.
-
----
-
-## 13. Connect the calibrated camera into TF2
-
-Before publishing a transform, inspect the existing camera TF tree.
-
-The RealSense driver typically publishes internal camera transforms such as:
-
-```text
-camera_link
-    ↓
-...
-    ↓
-camera_color_optical_frame
-```
-
-Do not give `camera_color_optical_frame` a second TF parent.
-
-Instead, identify the actual RealSense root frame and connect that root to the
-FR3 tree.
-
-Let:
-
-- `r` = RealSense camera root frame
-- `c` = `camera_color_optical_frame`
-
-If calibration directly produced `T_b_c`, obtain the existing internal camera
-transform `T_r_c` from TF and compute:
-
-$$
-{}^bT_r
-=
-{}^bT_c({}^rT_c)^{-1}
-$$
-
-Then publish the fixed transform:
-
-```text
-fr3_link0
-    ↓
-camera root
-    ↓
-RealSense internal TF
-    ↓
-camera_color_optical_frame
-```
-
-Use either:
-
-- `StaticTransformBroadcaster`; or
-- `static_transform_publisher` with the measured values.
-
-Never publish a zero/identity placeholder and treat it as calibration.
-
-After publishing, verify:
-
-```bash
-ros2 run tf2_ros tf2_echo \
-  fr3_link0 \
-  camera_color_optical_frame
-```
-
-The composed transform should match the calibrated `T_b_c` and remain fixed
-while the FR3 moves.
-
----
-
-## 14. Create `/object_point_base`
-
-Create a separate node:
-
-```text
-object_tf_transformer.py
-```
-
-Input:
-
-```text
-/object_point_camera
-```
-
-Output:
-
-```text
-/object_point_base
-```
-
-Conceptually:
-
-```text
-PointStamped in camera frame
-        ↓
-TF2 lookup / transform
-        ↓
-PointStamped in fr3_link0
-```
-
-Core operation:
-
-```python
-import tf2_geometry_msgs
-from rclpy.duration import Duration
-from tf2_ros import TransformException
-
-try:
-    point_base = self.tf_buffer.transform(
-        point_camera,
-        "fr3_link0",
-        timeout=Duration(seconds=0.2),
-    )
-except TransformException as error:
-    self.get_logger().warning(
-        f"Transform failed: {error}",
-        throttle_duration_sec=1.0,
-    )
-    return
-
-self.point_base_publisher.publish(point_base)
-```
-
-Important:
-
-```text
-changing header.frame_id only ❌
-actual coordinate transform   ✅
-```
-
-The numbers themselves must be transformed.
-
-Reject:
-
-- NaN/Inf points;
-- stale target measurements;
-- unavailable TF;
-- points outside the intended workspace.
-
----
-
-## 15. Why this enables dynamic vision-guided pickup
-
-Before vision, the project used a fixed pickup location:
-
-```text
-saved PRE_GRASP
-    ↓
-saved GRASP
-```
-
-If the object moved, the robot still approached the original fixed position.
-
-After Stage 6:
-
-```text
-red target moves
-    ↓
-new (u, v)
-    ↓
-new depth
-    ↓
-new P_camera
-    ↓
-T_base_camera
-    ↓
-new P_base
-    ↓
-new PRE_GRASP
-    ↓
-new GRASP
-```
-
-For example, suppose Stage 6 eventually produces a validated target point:
-
-```text
-/object_point_base
-
-x = 0.48 m
-y = 0.12 m
-z = 0.05 m
-```
-
-A simple first pre-grasp could be defined conceptually as:
-
-```text
-PRE_GRASP:
-    x = object_x
-    y = object_y
-    z = object_z + safe_vertical_offset
-```
-
-For example:
-
-```text
-object z = 0.05 m
-safe offset = 0.10 m
-
-PRE_GRASP z = 0.15 m
-```
-
-Do not use these example numbers without measuring the actual workspace and tool
-geometry.
-
----
-
-## 16. Validate `/object_point_base` without robot motion
-
-Before connecting vision to MoveIt, keep the robot stationary.
-
-Run:
-
-```bash
-ros2 topic echo /object_point_base
-```
-
-In RViz:
-
-```text
-Fixed Frame = fr3_link0
-```
-
-Display the transformed target point.
-
-Test multiple known target positions across the intended pickup area.
-
-Record:
-
-| Test position | Reference base XYZ (m) | Estimated base XYZ (m) | Error (mm) | Stationary variation (mm) |
-|---|---|---|---|---|
-| Center | Record | Record | Calculate | Measure |
-| Left | Record | Record | Calculate | Measure |
-| Right | Record | Record | Calculate | Measure |
-| Near | Record | Record | Calculate | Measure |
-| Far | Record | Record | Calculate | Measure |
-
-Use physically measured references where possible.
-
-Do not accept calibration only because the RViz visualization “looks close”.
-Measure the error.
-
-The acceptable error depends on:
-
-- target size;
-- gripper finger width;
-- grasp clearance;
-- tool geometry;
-- approach direction;
-- required task tolerance.
-
-There is no universal error threshold.
-
----
-
-## 17. Separate surface localization from grasp TCP position
-
-The current red-target localizer estimates the 3D position of the detected red
-surface/marker.
-
-That point is not necessarily the gripper TCP grasp point.
-
-For example:
-
-```text
-D405 detects top surface
-        ↓
-P_surface
-```
-
-but manipulation needs:
-
-```text
-P_TCP_grasp
-```
-
-Therefore define a grasp offset based on:
-
-- physical object dimensions;
-- marker location on the object;
-- gripper geometry;
-- selected TCP;
-- grasp approach direction.
-
-Conceptually:
-
-```text
-P_grasp = P_detected + grasp_offset
-```
-
-Do not simply command the gripper TCP to the detected top-surface Z value.
-
----
-
-## 18. First motion test: dynamic PRE_GRASP only
-
-After `/object_point_base` is validated, do **not** immediately run a complete
-autonomous grasp.
-
-The first robot-motion test should be:
-
-```text
-fresh target detection
-        ↓
-/object_point_camera
-        ↓
-TF2
-        ↓
-/object_point_base
-        ↓
-generate PRE_GRASP only
-        ↓
-MoveIt plan
-        ↓
-inspect plan
-        ↓
-supervised execution
-        ↓
-stop above object
-```
-
-Verify that the gripper arrives above the physical target with safe clearance.
-
-Repeat at several object positions before implementing descent.
-
----
-
-## 19. Then add dynamic GRASP and reuse fixed placement
-
-For the first complete vision-guided pick-and-place experiment, make only the
-pickup position dynamic.
-
-Keep the placement/bin poses fixed.
-
-Recommended sequence:
-
-```text
-DETECT
-    ↓
-CAMERA XYZ
-    ↓
-BASE XYZ
-    ↓
-DYNAMIC PRE_GRASP
-    ↓
-DYNAMIC GRASP
-    ↓
-CLOSE
-    ↓
-LIFT
-    ↓
-FIXED PRE_BIN
-    ↓
-FIXED BIN
-    ↓
-RELEASE
-    ↓
-POST_BIN
-    ↓
-HOME
-```
-
-This is much easier to debug than making pickup and placement dynamic at the
-same time.
-
----
-
-## 20. Full vision-guided pick-and-place logic
-
-Once Stage 6 is validated, the high-level architecture becomes:
-
-```text
-Physical target
-      ↓
-RealSense RGB
-      ↓
-red-target detection
-      ↓
-(u, v)
-      ↓
-aligned depth Z
-      ↓
-camera intrinsics
-      ↓
-P_camera = (Xc, Yc, Zc)
-      ↓
-/object_point_camera
-      ↓
-validated camera-to-FR3 TF
-      ↓
-P_base = (Xb, Yb, Zb)
-      ↓
-/object_point_base
-      ↓
-grasp offset / safety checks
-      ↓
-PRE_GRASP pose
-      ↓
-MoveIt planning
-      ↓
-FR3 approaches object
-      ↓
-GRASP
-      ↓
-LIFT
-      ↓
-fixed BIN
-      ↓
-RELEASE
-```
-
-This is the transition from **fixed pick-and-place** to **vision-guided
-pick-and-place**.
-
----
-
-## 21. Safety and data-validity rules
-
-Before any point is converted into a robot command, verify:
-
-1. Detection is current, not stale.
-2. Target contour is valid.
-3. Depth is valid and finite.
-4. `/object_point_camera` is finite.
-5. TF lookup succeeds.
-6. `/object_point_base` is inside a predefined workspace.
-7. Target height is physically plausible.
-8. PRE_GRASP has safe table clearance.
-9. The planned trajectory is collision-free.
-10. The operator can stop execution immediately.
-
-If any condition fails, withhold motion.
-
-Never reuse the last valid object point indefinitely after the target disappears.
-
----
-
-## 22. Current Stage 6 implementation checklist
-
-### Already complete
-
-```text
-RealSense RGB stream                         ✅
-Aligned depth                               ✅
-CameraInfo / intrinsics                     ✅
-Red-target detection                        ✅
-Target center pixel (u, v)                  ✅
-Depth at target                             ✅
-Camera-frame XYZ                            ✅
-/object_point_camera                        ✅
-```
-
-### To implement now
-
-```text
-Rigid measured ChArUco/checkerboard         ⬜
-Calibration-board pose detector             ⬜
-T_camera_target output                      ⬜
-Robot/tool pose recording                   ⬜
-Synchronized pose-pair recorder             ⬜
-15–25 varied calibration samples            ⬜
-Offline eye-to-hand solver                  ⬜
-Held-out calibration validation             ⬜
-Saved T_base_camera                         ⬜
-Static TF connection                        ⬜
-object_tf_transformer.py                    ⬜
-/object_point_base                          ⬜
-RViz + physical-position validation         ⬜
-Dynamic PRE_GRASP test                      ⬜
-```
-
----
-
-## Immediate next lab task
-
-Do **not** move on to automatic grasping yet.
-
-The immediate sequence should be:
-
-```text
-1. Prepare and accurately measure a rigid ChArUco/checkerboard.
-2. Keep the D405 fixed.
-3. Build calibration_board_detector.py.
-4. Verify stable board pose T_camera_target.
-5. Confirm the FR3 tool/TCP frame.
-6. Build calibration_pose_recorder.py.
-7. Collect varied synchronized robot-camera pose pairs.
-8. Solve T_base_camera offline.
-9. Publish the validated transform into TF2.
-10. Build object_tf_transformer.py.
-11. Verify /object_point_base at multiple known positions.
-12. Test dynamic PRE_GRASP only.
-13. Only then attempt one supervised vision-guided pick-and-place cycle.
-```
-
-The key milestone for Stage 6 is:
-
-> **The same physical target point is measured by the D405, transformed through
-> a validated camera-to-FR3 calibration, and appears at the correct measured
-> location in `fr3_link0`.**
-
-Once that is repeatable, the project is ready to use vision to update the pickup
-location.
-
----
-
-[Development Process Index](README.md) · [Previous Stage](stage_05_realsense_perception.md) · [Stage 5 Debugging Note](stage_05_red_target_localizer_debugging.md) · [Next Stage](stage_07_vision_guided_sorting.md)
+Move the target by hand while the camera remains fixed...
