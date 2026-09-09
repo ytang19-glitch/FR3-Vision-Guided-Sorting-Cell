@@ -71,212 +71,82 @@ itself.
 
 ---
 
-## Immediate next steps — from partial ArUco detection to board pose
+## Current board — plain checkerboard
 
-The current ChArUco debugging state has improved from:
+Updated 2026-09-09: the active detector now uses a **plain checkerboard**.
+The earlier ChArUco/ArUco marker workflow is historical and is no longer the
+procedure for this board.
+
+| Setting | Current configuration |
+|---|---|
+| Printed squares | 10 × 7 |
+| Internal corners expected by OpenCV | 9 × 6 = **54** |
+| Square side reported for the current board | **25 mm = 0.025 m**; verify against the physical print |
+| Uploaded script default | 20 mm; override with `square_side:=0.025` for the 25 mm board |
+| Marker size / dictionary | Not used |
+| Pose output | `/calibration_board/pose`, representing `T_camera_board` |
+| Quality output | `/calibration_board/reprojection_error_px` |
+| Visual output | `/calibration_board/annotated_image` |
+
+The uploaded checkerboard implementation uses `findChessboardCornersSB` when
+available, then falls back to `findChessboardCorners` and `cornerSubPix`.
+It requires the **complete 54-corner grid**. Its default `min_corners=8`
+does not enable partial-board detection because incomplete grids are rejected
+earlier.
+
+Keep all required intersections visible, sharp and well lit. Move the board
+closer during detection tests if corners are too small to resolve; avoid
+cropping it or introducing blur, glare or extreme tilt.
+
+### Run and inspect the checkerboard detector
+
+After the executable has been registered, the package built and the workspace
+sourced, use:
+
+```bash
+ros2 run fr3_vision_sorting calibration_board_detector --ros-args -p square_side:=0.025
+```
+
+In separate terminals:
+
+```bash
+ros2 topic echo /calibration_board/pose
+ros2 topic echo /calibration_board/reprojection_error_px
+ros2 run rqt_image_view rqt_image_view
+```
+
+Select `/calibration_board/annotated_image` in the viewer. The target detection
+count is `Corners: 54/54`. A pose is published only after geometry, positive
+depth and reprojection checks pass; the default maximum error is 2.0 pixels.
+This is the expected behavior of the uploaded source, not a claim that a live
+camera run or camera-to-base calibration has already succeeded.
+
+### What changed and what stays mathematically the same
+
+The board model and corner detector replace the ChArUco-specific operations.
+Pose estimation still pairs known 3D board points with detected 2D pixels:
 
 ```text
-Detected: 0/17 markers
+P_camera = R_camera_board * P_board + t_camera_board
 ```
 
-to values such as:
+The detector uses color images and CameraInfo, **not depth pixels**, to estimate
+board pose. It neither moves the FR3 nor computes `T_base_camera` by itself.
 
-```text
-Detected: 7/17 markers
-Detected: 8/17 markers
-Detected: 9/17 markers
-```
+The first internal corner is modeled as `(s, s, 0)`, not `(0, 0, 0)`.
+The origin is therefore one square before it along both board axes.
+The generated indices 0–53 are detector-order indices, not persistent marker
+IDs. Verify a consistent physical origin and axes across every calibration
+sample; a plain checkerboard can have orientation ambiguity. This code does
+not automatically resolve it.
 
-This is significant because it confirms that the D405 image stream, ROS 2 image
-transport, `cv_bridge`, OpenCV 4.6, and 4x4 ArUco decoding are all functioning.
+A wrong square size scales the estimated translation even when reprojection
+error is low. Modeling a true 25 mm pattern as 20 mm gives approximately
+0.8 times the correct translation scale.
 
-Do **not** move on to TF2 publication or autonomous FR3 motion yet. The next
-milestone is:
-
-```text
-stable ArUco detection
-        ↓
-ChArUco corner detection
-        ↓
-board 6D pose in the D405 camera frame
-```
-
-### A. Improve current marker detection
-
-During detector testing, move the board closer to the D405 so the individual
-markers contain more pixels. Keep the whole pattern visible and avoid extreme
-tilt, motion blur, glare, and strong overexposure.
-
-A useful practical starting point is to let the ChArUco board occupy roughly
-30–60% of the image width. Exact `17/17` detection is not required on every
-frame, but detection should be stable enough across useful board poses for the
-corner and pose estimator to work reliably.
-
-### B. Confirm the physical board dimensions before metric pose estimation
-
-The source PDF is labeled approximately as:
-
-```text
-5 × 7 squares
-Checker size: 22 mm
-Marker size: 16 mm
-Dictionary: ArUco DICT_4X4
-```
-
-The physical print has been measured at approximately:
-
-```text
-square side ≈ 20 mm
-marker side ≈ 15 mm
-```
-
-Re-measure carefully before computing metric poses. A good method is to measure
-several adjacent squares together and divide by the number of squares, which
-reduces ruler error.
-
-The physical dimensions do **not** determine whether `detectMarkers()` can
-decode the ArUco pattern. They **do** determine the metric scale of the later
-board pose and therefore directly affect the camera-to-FR3 calibration.
-
-### C. Upgrade from ArUco markers to ChArUco corners
-
-For a board with 5 × 7 squares, the number of inner chessboard corners is:
-
-```text
-(5 - 1) × (7 - 1) = 24
-```
-
-So the detector should evolve from reporting only:
-
-```text
-ArUco markers: N/17
-```
-
-to also reporting something like:
-
-```text
-ArUco markers: 12/17
-ChArUco corners: 18/24
-```
-
-These ChArUco corners are the more useful observations for calibration because
-they can be associated with known metric coordinates on the board.
-
-### D. Estimate the board pose in the camera frame
-
-Once enough ChArUco corners are detected, `calibration_board_detector.py`
-should estimate the board's 6D pose relative to the D405 color optical frame.
-A useful debug output is:
-
-```text
-Markers detected: 14/17
-ChArUco corners: 20/24
-
-Board pose in camera frame:
-X = ... m
-Y = ... m
-Z = ... m
-Roll  = ...
-Pitch = ...
-Yaw   = ...
-Reprojection error = ... px
-```
-
-This transform is the next major Stage 6 milestone:
-
-```text
-T_camera_board
-```
-
-or equivalently the board pose expressed in the camera frame.
-
-### E. Only after board pose is reliable, involve the FR3
-
-Once board pose detection is stable, rigidly attach the ChArUco board to the
-FR3 end effector and collect synchronized camera/robot pose pairs:
-
-```text
-Sample 1:
-T_camera_board
-T_base_tool
-
-Sample 2:
-T_camera_board
-T_base_tool
-
-...
-```
-
-Start with approximately 15–25 useful pose pairs, using meaningfully different
-positions and orientations. Do not collect many nearly identical poses.
-
-The final objective is to solve for:
-
-```text
-T_base_camera
-```
-
-so that object points can be transformed as:
-
-```text
-P_base = T_base_camera · P_camera
-```
-
-and the vision-guided manipulation chain becomes:
-
-```text
-D405
- ↓
-object detection
- ↓
-P_camera = (Xc, Yc, Zc)
- ↓
-T_base_camera
- ↓
-P_base = (Xb, Yb, Zb)
- ↓
-PRE_GRASP
- ↓
-FR3
-```
-
-### F. OpenCV 4.6 compatibility reminder
-
-The installed environment reports:
-
-```text
-OpenCV version: 4.6.0
-```
-
-The newer API:
-
-```python
-cv2.aruco.ArucoDetector(dictionary)
-```
-
-is not available in the current environment. Use the OpenCV 4.6-compatible
-interface:
-
-```python
-dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-parameters = cv2.aruco.DetectorParameters_create()
-
-corners, ids, rejected = cv2.aruco.detectMarkers(
-    frame,
-    dictionary,
-    parameters=parameters,
-)
-```
-
-### G. Current stop/go rule
-
-Do not proceed to `T_base_camera`, TF2 publication, or robot pickup motion until:
-
-1. ArUco detection is stable across useful board poses.
-2. ChArUco corners are being detected consistently.
-3. The physical board dimensions are confirmed.
-4. The D405 color intrinsics and distortion coefficients match the image stream.
-5. `T_camera_board` is stable and passes reprojection checks.
+**Next milestone:** stable 54-corner detection, consistent board axes and
+validated `T_camera_board`. Then collect paired camera/robot observations
+using the procedure below.
 
 ---
 
@@ -343,52 +213,43 @@ Your raw color calibration has nonzero distortion coefficients. Before
 precision localization, use distortion-aware deprojection with the matching
 camera model. Aligning depth to color does not rectify the color image.
 
-### Step 2 — Prepare a rigid, measured board
-The main purpose of a ChArUco board in your project is to help your D405 camera and FR3 robot agree on where things are in the real world.
-Editing square and marker side:
-```bash
-https://calib.io/pages/camera-calibration-pattern-generator?srsltid=AfmBOoqsVWZyesKWxj5m6iKlV0opKS-32rxhFPMR3SgO4wHWIJIDAhTE
-```
-Print a checkerboard or ChArUco board at actual size, attach it to flat rigid
-backing, and measure the printed pattern.
+### Step 2 — Prepare a rigid, measured checkerboard
+
+Use the current **10 × 7-square checkerboard**, with **9 × 6 internal corners**.
+Measure several adjacent squares and divide by their count to verify the
+reported 25 mm side. Set `square_side:=0.025` only when it matches the print.
+
+Attach the pattern to flat rigid backing. For the moving-board calibration
+procedure, mount it rigidly to the end effector with suitable clearance.
+It must not slip relative to the selected tool frame.
 
 | Record | Meaning |
 |---|---|
-| Board type | Checkerboard or ChArUco |
-| Pattern dimensions | Square counts and/or inner-corner counts required by the detector |
-| Square size | Measured side length of a printed square, in metres |
-| ChArUco settings | Marker size and dictionary, when applicable |
-| Board origin and axes | The reference used for all board coordinates |
+| Board type | Plain checkerboard |
+| Pattern dimensions | 10 × 7 squares; 9 × 6 internal corners |
+| Square size | Measured printed side, in meters |
+| Board origin and axes | Same physical reference in all samples |
+| Tool attachment | Fixed relationship to the selected tool frame |
 
-For example, **if measured** square size is 20 mm:
+**Checkpoint:** dimensions match the detector, all 54 intersections can be
+observed, the board is flat and the attachment is rigid.
 
-```python
-square_size_m = 0.020
-```
+Dependencies used by the uploaded detector include:
 
-This is an example, not a measurement of your board. For a checkerboard,
-square counts and inner-corner counts are different: a pattern with 8 by 6
-squares has 7 by 5 inner corners.
-
-First check that the camera resolves the required corners clearly. Then arrange
-a rigid end-effector attachment with suitable clearance. The board must not
-slip relative to the selected tool frame during collection.
-
-**Checkpoint:** printed dimensions are measured, the board is flat, its pose
-can be observed clearly, and its attachment is rigid.
-
-In package.xml:
-
-| Dependency       | Used for                              |
-| ---------------- | ------------------------------------- |
-| `std_msgs`       | Publishing reprojection error         |
-| `python3-numpy`  | Matrix calculations                   |
-| `python3-opencv` | ChArUco detection and pose estimation |
-| `python3-scipy`  | Rotation-to-quaternion conversion     |
+| Dependency | Purpose |
+|---|---|
+| `rclpy` | ROS node, subscriptions, publishers and parameters |
+| `sensor_msgs` | Image and CameraInfo |
+| `geometry_msgs` | PoseStamped |
+| `cv_bridge` | ROS/OpenCV image conversion |
+| `std_msgs` | Reprojection error message |
+| `python3-numpy` | Array and matrix calculations |
+| `python3-opencv` | Checkerboard detection and pose estimation |
+| `python3-scipy` | Rotation-to-quaternion conversion |
 
 ### Step 3 — Detect the board's position and orientation
 
-Implement the separate `calibration_board_detector.py` described below.
+Use the checkerboard version of `calibration_board_detector.py` explained below.
 The existing red-target localizer is not a board-pose detector.
 
 The board detector must find ordered corners, associate them with known metric
@@ -399,8 +260,9 @@ preserve the image timestamp, and report reprojection error.
 Here, `T_c_t` means **board coordinates expressed in the camera frame**.
 Unlike a single centroid, a board pose contains both position and orientation.
 
-2. Startup and callbacks
-```bash
+#### Startup and callbacks
+
+```mermaid
 flowchart TD
     A["main: initialize ROS 2"] --> B["Construct node: __init__"]
     B --> C["spin: dispatch callbacks"]
@@ -413,7 +275,9 @@ flowchart TD
 ```
 
 **Checkpoint:** axes stay attached to the same board origin while stationary,
-and bad or ambiguous detections are rejected. See the
+and inconsistent corner ordering is excluded from the dataset. The current
+node checks numerical and reprojection validity but does not automatically
+resolve checkerboard orientation ambiguity. See the
 [OpenCV calibration documentation](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
 for corner detection and pose estimation.
 
@@ -450,8 +314,23 @@ meaningful rotational diversity.
 
 ### Step 5 — Calculate and validate the camera-to-base transform
 
-Run the offline solver described below using the measured pose pairs and the
-fixed-camera frame substitutions.
+Use a solver configured for the fixed-camera, moving-board geometry.
+Let `b` be robot base, `c` camera, `g` tool, and `t` board. Every paired
+sample must satisfy:
+
+```text
+T_b_g(i) * T_g_t = T_b_c * T_c_t(i)
+```
+
+Here `T_b_g(i)` and `T_c_t(i)` are measured; `T_b_c` and the rigid
+mounting transform `T_g_t` are fixed unknowns unless the mounting pose is
+independently known. This guide does not supply or verify a solver executable.
+Do not feed these poses into an eye-in-hand API without checking its frame
+conventions.
+
+For a table-mounted board with independently measured full pose `T_b_t`,
+the alternative relation is `T_b_c = T_b_t * inverse(T_c_t)`. Use the same
+physical board origin and axes in both measurements.
 
 The result converts a camera point into a base point:
 
@@ -476,9 +355,10 @@ guessed translations or quaternions.
 ### Step 6 — Connect the result to the existing TF tree
 
 Inspect the RealSense TF tree, identify its actual root frame, and calculate
-the base-to-root transform from the calibrated base-to-optical transform as
-described in Section 13. Publish that fixed relationship while preserving the
-driver's internal transforms.
+the base-to-root transform from the calibrated base-to-optical transform.
+If `r` is the actual RealSense root and the driver provides `T_r_c`, use
+`T_b_r = T_b_c * inverse(T_r_c)`. Publish that fixed relationship while
+preserving the driver's internal transforms.
 
 Do not give the optical frame a second parent.
 
@@ -494,7 +374,7 @@ or its support invalidates this calibration.
 
 ### Step 7 — Publish and verify /object_point_base
 
-Implement `object_tf_transformer.py` using the outline in Section 14:
+Implement `object_tf_transformer.py` with this behavior:
 
 - Subscribe to `/object_point_camera`.
 - Transform the actual coordinates into `fr3_link0` at the measurement timestamp.
@@ -763,4 +643,165 @@ Then source ROS again.
 
 ### Stage 5 validation before continuing
 
-Move the target by hand while the camera remains fixed...
+Move the target by hand while the camera remains fixed. Confirm detection
+follows the intended object, measure stationary variation, and compare depth
+against an independent physical reference.
+
+
+---
+
+## Checkerboard code tutorial — function tables and flowcharts
+
+The following tables explain the uploaded checkerboard source. They document
+its behavior without changing the detector calculations.
+
+### Code 1. Functions you wrote
+
+| Function | When it runs / input | What it does / output | Why it is needed |
+|---|---|---|---|
+| `main(args=None)` | Script starts, or an installed entry point calls it | Initializes ROS 2, constructs the node, calls `rclpy.spin`, and cleans up on exit | Keeps the program running so incoming messages can trigger callbacks |
+| `__init__(self)` | Once, when the node is constructed | Sets parameters; creates the bridge, 54 board points, publishers and subscribers; logs configuration | Prepares the data and ROS connections that later callbacks use |
+| `on_camera_info(self, msg)` | A `CameraInfo` message arrives | Checks distortion model, finite calibration values and positive focal lengths; stores valid information, otherwise clears it | Pose estimation needs the correct camera model |
+| `detect_corners(self, gray, k, d)` | Called by `on_image` | Tries SB detection, then classic detection with subpixel refinement; returns all 54 corners and indices, or `None, None` | Finds image locations corresponding to the known board points |
+| `publish_image(self, image, header, status)` | Called for normal output or a handled rejection | Adds status text, converts the image to a ROS message, copies its header and publishes it | Lets you see detection results and reasons for rejecting a frame |
+| `on_image(self, msg)` | A color image arrives | Converts and checks the image, detects corners, estimates and validates pose, publishes accepted results | This is the main processing pipeline |
+
+A **callback** is a function ROS calls when its subscribed message arrives. The file does not repeatedly execute every function from top to bottom. `__init__` runs once; `spin` then dispatches callbacks. CameraInfo and images arrive separately, and this code uses the latest stored valid CameraInfo; it does not timestamp-synchronize them.
+
+The `if __name__ == "__main__": main()` block starts the program when the file is executed directly.
+
+### Code 2. Startup and callbacks
+
+```mermaid
+flowchart TD
+    A["main: initialize ROS 2"] --> B["Construct node: __init__"]
+    B --> C["spin: dispatch callbacks"]
+    C -->|CameraInfo arrives| D["on_camera_info: validate and store"]
+    C -->|Color image arrives| E["on_image: process frame"]
+    D -.->|Latest camera model| E
+    D --> C
+    E --> C
+    C -->|Shutdown or interruption| F["Destroy node and shut down ROS 2"]
+```
+
+### Code 3. What happens inside on_image
+
+| Step | Code / operation | What it produces | Why |
+|---|---|---|---|
+| 1 | `imgmsg_to_cv2(..., "bgr8").copy()` | Editable color image | OpenCV processes image arrays; the copy can be annotated |
+| 2 | Check `self.camera_info` | A valid stored camera model, or early return | No calibrated projection is possible without it |
+| 3 | Compare image size and frame ID | Matching Image/CameraInfo, or early return | Prevents using a camera model for a different image geometry or frame |
+| 4 | Convert `info.k` and `info.d` to arrays | Intrinsic matrix K and distortion coefficients d | Inputs for pose estimation and projection |
+| 5 | `cv2.cvtColor` | Grayscale image | Corner detection uses intensity structure |
+| 6 | `self.detect_corners` | 54 pixel locations and indices, or no detection | Establishes the observed board grid |
+| 7 | Draw corners; check `min_corners` | Annotated detections or early return | Displays the result and gates pose estimation |
+| 8 | Index `board_points`; reshape arrays | Matching 3D board points and 2D image points | Each known physical corner must match its observed pixel |
+| 9 | Center points and check matrix rank | Rejects rank below 2 | Collinear points do not provide the planar grid geometry expected here |
+| 10 | `cv2.solvePnP` | Success flag, rotation vector and translation vector | Estimates how the board is positioned relative to the camera |
+| 11 | Check success and finite values | Numerically usable pose, or early return | Rejects failed or invalid results |
+| 12 | `cv2.Rodrigues`; transform points | Rotation matrix and board corners in camera coordinates | Enables geometric validation |
+| 13 | Check every camera Z is positive | Rejects points behind the camera | Enforces visibility in front of the camera |
+| 14 | `cv2.projectPoints`; compute RMS error | Pixel error | Checks how well the estimated pose explains detected corners |
+| 15 | Compare error with `max_error` | Accepted pose or early return | Filters poor image fits |
+| 16 | `Rotation.from_matrix`, `as_quat`, `as_euler` | Quaternion for ROS; angles for display | Encodes orientation and makes it readable |
+| 17 | Fill and publish `PoseStamped` and `Float32` | Board pose and accepted reprojection error | Makes results available to other ROS nodes |
+| 18 | `drawFrameAxes`, `publish_image`, logger | Visual axes, status and terminal report | Helps inspect the result |
+
+A `return` in a callback ends processing of **that frame**, not the entire node. The next image can be processed normally.
+
+The `except` block catches the listed bridge, OpenCV, value and indexing errors and logs a warning. Those exception paths do not necessarily publish an annotated image.
+
+### Code 4. Image-processing flowchart
+
+```mermaid
+flowchart TD
+    A["Image arrives: convert to BGR"] --> B{"Valid, matching CameraInfo?"}
+    B -->|No| X["Publish status image; return"]
+    B -->|Yes| C["Grayscale and detect corners"]
+    C --> D{"Complete grid and count gate pass?"}
+    D -->|No| X
+    D -->|Yes| E["Pair 3D board points with 2D pixels"]
+    E --> F{"Geometry rank at least 2?"}
+    F -->|No| X
+    F -->|Yes| G["solvePnP: estimate rotation and translation"]
+    G --> H{"Success, finite pose, positive corner depths?"}
+    H -->|No| X
+    H -->|Yes| I["Project points and calculate RMS pixel error"]
+    I --> J{"Finite error within threshold?"}
+    J -->|No| X
+    J -->|Yes| K["Convert orientation; publish pose and error"]
+    K --> L["Draw axes; publish image and log"]
+```
+
+Here the count gate normally passes only with **54/54 corners**. Although `min_corners` defaults to 8, `detect_corners` already rejects an incomplete grid. Lowering `min_corners` does not enable partial-board detection. A setting greater than 54 blocks all poses.
+
+### Code 5. Important library functions
+
+| Function / class | Use in this script | Why |
+|---|---|---|
+| `Node` | Base class of the detector | Supplies ROS parameters, publishers, subscriptions and logging |
+| `declare_parameter / get_parameter` | Declare defaults and read configuration | Allows topic names, size and thresholds to be configured |
+| `create_subscription` | Connects a topic to a callback | Receives camera messages |
+| `create_publisher / publish` | Creates outputs and sends messages | Shares the results |
+| `qos_profile_sensor_data` | Subscription quality-of-service profile | Configures reception of sensor streams |
+| `CvBridge` | ROS Image ↔ OpenCV array conversion | Bridges ROS transport and image processing |
+| `np.zeros / np.mgrid` | Builds a regular 3D board grid | Supplies known physical corner coordinates |
+| `np.asarray / reshape / flatten` | Converts and arranges arrays | Gives calculations the required shapes and ordering |
+| `np.isfinite` | Detects NaN or infinite values | Rejects invalid inputs/results |
+| `findChessboardCornersSB` | First detection attempt, if available | Finds the checkerboard intersections |
+| `findChessboardCorners` | Fallback detector | Provides another detection path |
+| `cornerSubPix` | Refines classic-detector corners | Improves pixel-coordinate precision |
+| `np.linalg.matrix_rank` | Checks the centered board geometry | Detects a degenerate arrangement |
+| `solvePnP` | Fits pose to 3D–2D correspondences | Provides the board-to-camera transformation |
+| `Rodrigues` | Converts rotation vector to matrix | Provides R for point transformation |
+| `projectPoints` | Predicts corner pixel locations from pose | Enables reprojection validation |
+| `Rotation.from_matrix / as_quat` | Converts R to quaternion | Matches the ROS orientation representation |
+| `as_euler("xyz", degrees=True)` | Produces display angles | Makes orientation readable in logs |
+| `drawChessboardCorners / drawFrameAxes / putText` | Adds visual overlays | Helps debug detection and pose |
+| `destroy_node / shutdown` | Releases node and ROS resources | Clean program exit |
+
+The `k` and `d` arguments to `detect_corners` are retained in its signature but are not used in its body. Raw-image corners are passed to pose estimation together with K and d.
+
+### Code 6. Data and topic map
+
+| Name | Meaning / shape | Units |
+|---|---|---|
+| `pattern_size` | (9, 6) internal intersections for 10 × 7 squares | Corner counts |
+| `board_points` | 54 × 3 known corner coordinates | Meters in this script |
+| `corners` | Detected corner array, reshaped into 54 × 2 | Pixels |
+| `ids` | Indices 0–53 in detector order | Indices, not physical marker IDs |
+| `k` | 3 × 3 intrinsic matrix containing fx, fy, cx, cy | Focal lengths and principal point in pixels |
+| `d` | Lens-distortion coefficient vector | Camera-model coefficients |
+| `rvec` | 3 × 1 rotation vector; not roll/pitch/yaw | Axis-angle rotation vector |
+| `tvec` | 3 × 1 board-origin position in camera frame | Meters |
+| `rotation_matrix` | 3 × 3 R | Dimensionless |
+| `quaternion` | [x, y, z, w] orientation | Dimensionless |
+| `error` | RMS distance between predicted and detected pixels | Pixels |
+
+| ROS topic | Direction | Type | Purpose |
+|---|---|---|---|
+| `/camera/camera/color/image_raw` | Input | `Image` | Color image |
+| `/camera/camera/color/camera_info` | Input | `CameraInfo` | Existing intrinsics and distortion model |
+| `/calibration_board/pose` | Output | `PoseStamped` | Accepted board pose in the image's optical frame |
+| `/calibration_board/annotated_image` | Output | `Image` | Status, detected corners and accepted-pose axes |
+| `/calibration_board/reprojection_error_px` | Output | `Float32` | Error for accepted poses only |
+
+The node does not subscribe to depth, calculate new camera intrinsics, broadcast TF, or send robot commands. A rejected frame publishes no new pose or error, so a downstream consumer must not assume an old pose is a fresh detection.
+
+
+### Reading the pose correctly
+
+`tvec` is the board origin expressed in camera coordinates, in the same
+length units as the supplied board points. This script chooses meters; OpenCV
+does not intrinsically require meters. `rvec` encodes axis-angle rotation,
+not roll/pitch/yaw. These quantities describe the board-to-camera transform.
+See [OpenCV's pose convention](https://docs.opencv.org/4.x/d5/d1f/calib3d_solvePnP.html).
+
+The source comment calling `as_euler("xyz")` intrinsic is inaccurate:
+lowercase `xyz` means extrinsic rotations in
+[SciPy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.as_euler.html).
+The published orientation is the quaternion; Euler angles are for display.
+
+**Documentation verification:** checked against the uploaded source. No live
+ROS camera test, calibration solve or robot execution was performed as part of
+this documentation update.
