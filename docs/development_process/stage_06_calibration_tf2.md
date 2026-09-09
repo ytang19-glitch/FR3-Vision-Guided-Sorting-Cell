@@ -399,6 +399,19 @@ preserve the image timestamp, and report reprojection error.
 Here, `T_c_t` means **board coordinates expressed in the camera frame**.
 Unlike a single centroid, a board pose contains both position and orientation.
 
+2. Startup and callbacks
+```bash
+flowchart TD
+    A["main: initialize ROS 2"] --> B["Construct node: __init__"]
+    B --> C["spin: dispatch callbacks"]
+    C -->|CameraInfo arrives| D["on_camera_info: validate and store"]
+    C -->|Color image arrives| E["on_image: process frame"]
+    D -.->|Latest camera model| E
+    D --> C
+    E --> C
+    C -->|Shutdown or interruption| F["Destroy node and shut down ROS 2"]
+```
+
 **Checkpoint:** axes stay attached to the same board origin while stationary,
 and bad or ambiguous detections are rejected. See the
 [OpenCV calibration documentation](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
