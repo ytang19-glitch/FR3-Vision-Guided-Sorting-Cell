@@ -300,6 +300,16 @@ This terminal display is a diagnostic, not a synchronized sample recorder.
 | `g`      | Tool/end-effector frame, such as `fr3_hand_tcp`                       |
 | `b_T_g`  | Position and orientation of the tool frame relative to the robot base |
 
+| Letter | Meaning                  | In your setup                                 |
+| ------ | ------------------------ | --------------------------------------------- |
+| `c`    | Camera frame             | Camera optical coordinate frame               |
+| `b`    | Robot base frame         | `fr3_link0`                                   |
+| `g`    | Gripper/tool frame       | End-effector frame, such as `fr3_hand_tcp`    |
+| `t`    | Calibration target frame | Coordinate frame attached to the checkerboard |
+| `T`    | Transformation           | Describes both position and orientation       |
+
+
+
 For every sample, save:
 
 | Measurement | Meaning |
