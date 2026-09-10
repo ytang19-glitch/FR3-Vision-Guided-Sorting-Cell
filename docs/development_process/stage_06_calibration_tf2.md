@@ -84,7 +84,7 @@ procedure for this board.
 | Square side reported for the current board | **25 mm = 0.025 m**; verify against the physical print |
 | Uploaded script default | 20 mm; override with `square_side:=0.025` for the 25 mm board |
 | Marker size / dictionary | Not used |
-| Pose output | `/calibration_board/pose`, representing `T_camera_board` |
+| Pose output | `/calibration_board/pose`, representing ${}^{c}T_{t}$ |
 | Quality output | `/calibration_board/reprojection_error_px` |
 | Visual output | `/calibration_board/annotated_image` |
 
@@ -126,12 +126,14 @@ camera run or camera-to-base calibration has already succeeded.
 The board model and corner detector replace the ChArUco-specific operations.
 Pose estimation still pairs known 3D board points with detected 2D pixels:
 
-```text
-P_camera = R_camera_board * P_board + t_camera_board
-```
+$$
+\mathbf{p}_{c} = {}^{c}R_{t}\,\mathbf{p}_{t} + {}^{c}\mathbf{t}_{t}
+$$
+
+Here, $c$ denotes the camera frame and $t$ the checkerboard frame.
 
 The detector uses color images and CameraInfo, **not depth pixels**, to estimate
-board pose. It neither moves the FR3 nor computes `T_base_camera` by itself.
+board pose. It neither moves the FR3 nor computes ${}^{b}T_{c}$ by itself.
 
 The first internal corner is modeled as `(s, s, 0)`, not `(0, 0, 0)`.
 The origin is therefore one square before it along both board axes.
@@ -145,7 +147,7 @@ error is low. Modeling a true 25 mm pattern as 20 mm gives approximately
 0.8 times the correct translation scale.
 
 **Next milestone:** stable 54-corner detection, consistent board axes and
-validated `T_camera_board`. Then collect paired camera/robot observations
+validated ${}^{c}T_{t}$. Then collect paired camera/robot observations
 using the procedure below.
 
 ---
@@ -253,11 +255,11 @@ Use the checkerboard version of `calibration_board_detector.py` explained below.
 The existing red-target localizer is not a board-pose detector.
 
 The board detector must find ordered corners, associate them with known metric
-board coordinates, and estimate `T_c_t` using the matching color `K` and
+board coordinates, and estimate ${}^{c}T_{t}$ using the matching color `K` and
 distortion coefficients `D`. Draw the detected corners and board axes,
 preserve the image timestamp, and report reprojection error.
 
-Here, `T_c_t` means **board coordinates expressed in the camera frame**.
+Here, ${}^{c}T_{t}$ means **board coordinates expressed in the camera frame**.
 Unlike a single centroid, a board pose contains both position and orientation.
 
 #### Startup and callbacks
@@ -296,8 +298,8 @@ For every sample, save:
 
 | Measurement | Meaning |
 |---|---|
-| `T_c_t` | Board pose observed by the camera |
-| `T_b_g` | Tool pose relative to `fr3_link0` at the image timestamp |
+| ${}^{c}T_{t}$ | Board pose observed by the camera |
+| ${}^{b}T_{g}$ | Tool pose relative to `fr3_link0` at the image timestamp |
 | Quality and timestamp | Evidence that the pair is usable |
 
 Use your established supervised robot controls to move to a collision-checked
@@ -315,22 +317,33 @@ meaningful rotational diversity.
 ### Step 5 — Calculate and validate the camera-to-base transform
 
 Use a solver configured for the fixed-camera, moving-board geometry.
-Let `b` be robot base, `c` camera, `g` tool, and `t` board. Every paired
-sample must satisfy:
+Let $b$ be robot base, $c$ camera, $g$ tool, and $t$ board.
+The notation ${}^{a}T_{b}$ transforms coordinates from frame $b$ into frame $a$.
+For sample $i$, the two paths from the board to the robot base must agree:
+board → tool → base, and board → camera → base.
 
-```text
-T_b_g(i) * T_g_t = T_b_c * T_c_t(i)
-```
+Every paired sample must satisfy:
 
-Here `T_b_g(i)` and `T_c_t(i)` are measured; `T_b_c` and the rigid
-mounting transform `T_g_t` are fixed unknowns unless the mounting pose is
+$$
+{}^{b}T_{g}(i)\,{}^{g}T_{t}
+=
+{}^{b}T_{c}\,{}^{c}T_{t}(i)
+$$
+
+Here ${}^{b}T_{g}(i)$ and ${}^{c}T_{t}(i)$ are measured; ${}^{b}T_{c}$ and the rigid
+mounting transform ${}^{g}T_{t}$ are fixed unknowns unless the mounting pose is
 independently known. This guide does not supply or verify a solver executable.
 Do not feed these poses into an eye-in-hand API without checking its frame
 conventions.
 
-For a table-mounted board with independently measured full pose `T_b_t`,
-the alternative relation is `T_b_c = T_b_t * inverse(T_c_t)`. Use the same
-physical board origin and axes in both measurements.
+For a table-mounted board with independently measured full pose ${}^{b}T_{t}$,
+the alternative relation is:
+
+$$
+{}^{b}T_{c} = {}^{b}T_{t}\left({}^{c}T_{t}\right)^{-1}
+$$
+
+Use the same physical board origin and axes in both measurements.
 
 The result converts a camera point into a base point:
 
@@ -341,8 +354,8 @@ $$
 | Variable | Practical meaning |
 |---|---|
 | `p_c = [Xc, Yc, Zc]` | Detected point relative to the camera optical frame, in metres |
-| `R_b_c` | Rotation expressing the camera axes in the base frame |
-| `t_b_c` | Camera optical origin's position relative to the base, in metres |
+| ${}^{b}R_{c}$ | Rotation expressing the camera axes in the base frame |
+| ${}^{b}\mathbf{t}_{c}$ | Camera optical origin's position relative to the base, in metres |
 | `p_b = [Xb, Yb, Zb]` | The same physical point relative to `fr3_link0`, in metres |
 
 Check physical plausibility and the reserved validation poses. The estimated
@@ -356,9 +369,13 @@ guessed translations or quaternions.
 
 Inspect the RealSense TF tree, identify its actual root frame, and calculate
 the base-to-root transform from the calibrated base-to-optical transform.
-If `r` is the actual RealSense root and the driver provides `T_r_c`, use
-`T_b_r = T_b_c * inverse(T_r_c)`. Publish that fixed relationship while
-preserving the driver's internal transforms.
+If $r$ is the actual RealSense root and the driver provides ${}^{r}T_{c}$, use:
+
+$$
+{}^{b}T_{r} = {}^{b}T_{c}\left({}^{r}T_{c}\right)^{-1}
+$$
+
+Publish that fixed relationship while preserving the driver's internal transforms.
 
 Do not give the optical frame a second parent.
 
@@ -483,7 +500,7 @@ where:
 
 - `b` = `fr3_link0`
 - `c` = `camera_color_optical_frame`
-- `T_b_c` = fixed transform from camera coordinates into robot-base coordinates
+- ${}^{b}T_{c}$ = fixed transform from camera coordinates into robot-base coordinates
 
 This is the transform Stage 6 must determine.
 
