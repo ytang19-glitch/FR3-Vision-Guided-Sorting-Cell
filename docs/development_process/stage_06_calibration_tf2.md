@@ -126,9 +126,9 @@ camera run or camera-to-base calibration has already succeeded.
 The board model and corner detector replace the ChArUco-specific operations.
 Pose estimation still pairs known 3D board points with detected 2D pixels:
 
-$$
+```math
 \mathbf{p}_{c} = {}^{c}R_{t}\,\mathbf{p}_{t} + {}^{c}\mathbf{t}_{t}
-$$
+```
 
 Here, $c$ denotes the camera frame and $t$ the checkerboard frame.
 
@@ -324,11 +324,9 @@ board → tool → base, and board → camera → base.
 
 Every paired sample must satisfy:
 
-$$
-{}^{b}T_{g}(i)\,{}^{g}T_{t}
-=
-{}^{b}T_{c}\,{}^{c}T_{t}(i)
-$$
+```math
+{}^{b}T_{g}(i)\,{}^{g}T_{t} = {}^{b}T_{c}\,{}^{c}T_{t}(i)
+```
 
 Here ${}^{b}T_{g}(i)$ and ${}^{c}T_{t}(i)$ are measured; ${}^{b}T_{c}$ and the rigid
 mounting transform ${}^{g}T_{t}$ are fixed unknowns unless the mounting pose is
@@ -339,17 +337,17 @@ conventions.
 For a table-mounted board with independently measured full pose ${}^{b}T_{t}$,
 the alternative relation is:
 
-$$
+```math
 {}^{b}T_{c} = {}^{b}T_{t}\left({}^{c}T_{t}\right)^{-1}
-$$
+```
 
 Use the same physical board origin and axes in both measurements.
 
 The result converts a camera point into a base point:
 
-$$
+```math
 \mathbf p_b = {}^bR_c\mathbf p_c + {}^bt_c
-$$
+```
 
 | Variable | Practical meaning |
 |---|---|
@@ -371,9 +369,9 @@ Inspect the RealSense TF tree, identify its actual root frame, and calculate
 the base-to-root transform from the calibrated base-to-optical transform.
 If $r$ is the actual RealSense root and the driver provides ${}^{r}T_{c}$, use:
 
-$$
+```math
 {}^{b}T_{r} = {}^{b}T_{c}\left({}^{r}T_{c}\right)^{-1}
-$$
+```
 
 Publish that fixed relationship while preserving the driver's internal transforms.
 
@@ -477,24 +475,22 @@ pickup position.
 
 The required relation is:
 
-$$
+```math
 \mathbf p_b = {}^bR_c\mathbf p_c + {}^bt_c
-$$
+```
 
 or, in homogeneous form,
 
-$$
+```math
 \begin{bmatrix}
 \mathbf p_b\\
 1
-\end{bmatrix}
-=
-{}^bT_c
+\end{bmatrix} = {}^bT_c
 \begin{bmatrix}
 \mathbf p_c\\
 1
 \end{bmatrix}
-$$
+```
 
 where:
 
