@@ -294,6 +294,12 @@ ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
 Use the actual validated tool frame if your configuration differs.
 This terminal display is a diagnostic, not a synchronized sample recorder.
 
+| Notation | Meaning                                                               |
+| -------- | --------------------------------------------------------------------- |
+| `b`      | Robot base frame: `fr3_link0`                                         |
+| `g`      | Tool/end-effector frame, such as `fr3_hand_tcp`                       |
+| `b_T_g`  | Position and orientation of the tool frame relative to the robot base |
+
 For every sample, save:
 
 | Measurement | Meaning |
