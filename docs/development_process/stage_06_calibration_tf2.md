@@ -264,18 +264,6 @@ Unlike a single centroid, a board pose contains both position and orientation.
 
 #### Startup and callbacks
 
-```mermaid
-flowchart TD
-    A["main: initialize ROS 2"] --> B["Construct node: __init__"]
-    B --> C["spin: dispatch callbacks"]
-    C -->|CameraInfo arrives| D["on_camera_info: validate and store"]
-    C -->|Color image arrives| E["on_image: process frame"]
-    D -.->|Latest camera model| E
-    D --> C
-    E --> C
-    C -->|Shutdown or interruption| F["Destroy node and shut down ROS 2"]
-```
-
 **Checkpoint:** axes stay attached to the same board origin while stationary,
 and inconsistent corner ordering is excluded from the dataset. The current
 node checks numerical and reprojection validity but does not automatically
@@ -751,20 +739,6 @@ The `if __name__ == "__main__": main()` block starts the program when the file i
 
 ### Code 2. Startup and callbacks
 
-```mermaid
-flowchart TD
-    A["main: initialize ROS 2"] --> B["Construct node: __init__"]
-    B --> C["spin: dispatch callbacks"]
-    C -->|CameraInfo arrives| D["on_camera_info: validate and store"]
-    C -->|Color image arrives| E["on_image: process frame"]
-    D -.->|Latest camera model| E
-    D --> C
-    E --> C
-    C -->|Shutdown or interruption| F["Destroy node and shut down ROS 2"]
-```
-
-### Code 3. What happens inside on_image
-
 | Step | Code / operation | What it produces | Why |
 |---|---|---|---|
 | 1 | `imgmsg_to_cv2(..., "bgr8").copy()` | Editable color image | OpenCV processes image arrays; the copy can be annotated |
@@ -791,26 +765,6 @@ A `return` in a callback ends processing of **that frame**, not the entire node.
 The `except` block catches the listed bridge, OpenCV, value and indexing errors and logs a warning. Those exception paths do not necessarily publish an annotated image.
 
 ### Code 4. Image-processing flowchart
-
-```mermaid
-flowchart TD
-    A["Image arrives: convert to BGR"] --> B{"Valid, matching CameraInfo?"}
-    B -->|No| X["Publish status image; return"]
-    B -->|Yes| C["Grayscale and detect corners"]
-    C --> D{"Complete grid and count gate pass?"}
-    D -->|No| X
-    D -->|Yes| E["Pair 3D board points with 2D pixels"]
-    E --> F{"Geometry rank at least 2?"}
-    F -->|No| X
-    F -->|Yes| G["solvePnP: estimate rotation and translation"]
-    G --> H{"Success, finite pose, positive corner depths?"}
-    H -->|No| X
-    H -->|Yes| I["Project points and calculate RMS pixel error"]
-    I --> J{"Finite error within threshold?"}
-    J -->|No| X
-    J -->|Yes| K["Convert orientation; publish pose and error"]
-    K --> L["Draw axes; publish image and log"]
-```
 
 Here the count gate normally passes only with **54/54 corners**. Although `min_corners` defaults to 8, `detect_corners` already rejects an incomplete grid. Lowering `min_corners` does not enable partial-board detection. A setting greater than 54 blocks all poses.
 
