@@ -236,6 +236,54 @@ It must not slip relative to the selected tool frame.
 **Checkpoint:** dimensions match the detector, all 54 intersections can be
 observed, the board is flat and the attachment is rigid.
 
+#### Gripper test — open and grasp the board holder
+
+Keep the arm stationary during these gripper tests and keep fingers clear of
+the jaws. Run each command separately with the Franka gripper driver running
+and the ROS/workspace environment sourced.
+
+**Open to 80 mm.** Support any attached board or holder before releasing it:
+
+```bash
+ros2 action send_goal \
+  /franka_gripper/move \
+  franka_msgs/action/Move \
+  "{width: 0.08, speed: 0.02}"
+```
+
+**Grasp a rigid board holder.** The following is an example for a 45 mm
+gripping width. Replace `width` with the measured holder width and choose
+force appropriate for the holder before running it; these example settings
+have not been validated for your board mount.
+
+```bash
+ros2 action send_goal \
+  /franka_gripper/grasp \
+  franka_msgs/action/Grasp \
+  "{width: 0.045, speed: 0.02, force: 10.0, epsilon: {inner: 0.005, outer: 0.005}}" \
+  --feedback
+```
+
+| Parameter | Example | Meaning |
+|---|---|---|
+| `width` | 0.045 m | Target gripping width: 45 mm |
+| `speed` | 0.02 m/s | Gripper speed: 20 mm/s |
+| `force` | 10.0 N | Requested gripping force |
+| `epsilon.inner` | 0.005 m | Allowed width deviation below the target |
+| `epsilon.outer` | 0.005 m | Allowed width deviation above the target |
+
+The example width tolerance spans 40–50 mm. These tolerances describe grasp
+width acceptance, not collision clearance. Do not confuse 0.005 m (5 mm)
+with 0.05 m (50 mm), or enlarge tolerances just to obtain success.
+
+Confirm `success: true` and physically verify that the rigid holder and board
+cannot slip or rotate. Grip the holder, not loose printed paper. A success
+message alone does not establish a rigid attachment.
+
+Keep the board attached in the same position throughout sample collection.
+If it slips or is regripped, start a separate dataset. After collection,
+support the assembly and use the open command above to release it.
+
 Dependencies used by the uploaded detector include:
 
 | Dependency | Purpose |
