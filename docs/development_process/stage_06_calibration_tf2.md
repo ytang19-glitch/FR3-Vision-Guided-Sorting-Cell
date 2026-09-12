@@ -330,7 +330,56 @@ guarantee; nearly identical orientations give little calibration information.
 **Checkpoint:** each sample contains a synchronized pair, and the dataset has
 meaningful rotational diversity.
 
+#### Terminal commands — collect calibration pairs
+
+Keep the camera driver, checkerboard detector and robot TF publishers running.
+In a separate terminal:
+
+```bash
+cd /workspace/ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 run fr3_vision_sorting collect_calibration
+```
+
+Press **ENTER** in the collector terminal to save each pair after the robot
+has stopped and a fresh board pose is available. Collect varied positions and
+orientations, then stop the collector with **Ctrl+C** and confirm that its
+sample file has been saved. These commands refer to the locally installed
+executables demonstrated in the lab; their implementation and file defaults
+must be checked before relying on their output.
+
+For this fixed-camera method, the board must move rigidly with the robot hand.
+If robot TCP coordinates change substantially but camera-to-board coordinates
+remain almost constant, check whether the board is still on the table or the
+collector is reusing stale poses. Do not accept that dataset as a successful
+moving-board calibration. Preserve it for debugging and collect a separate
+corrected dataset.
+
 ### Step 5 — Calculate and validate the camera-to-base transform
+
+After collection has finished, run these commands **separately** in the same
+workspace directory:
+
+```bash
+ros2 run fr3_vision_sorting solve_calibration
+```
+
+Then inspect the saved result:
+
+```bash
+cat camera_to_base.yaml
+```
+
+The first command solves from the saved pose pairs; the second only displays
+the YAML file. Neither displaying a file nor receiving finite numbers proves
+that calibration is accurate. Verify the solver's input path, sample count,
+output path, frame conventions and validation errors. If a sample file was
+deleted but the solver still loads samples, locate the actual input file
+before proceeding.
+
+Do not publish a result containing NaN or infinity. Even a finite quaternion
+and translation must pass the validation below before controlling the robot.
 
 Use a solver configured for the fixed-camera, moving-board geometry.
 Let $b$ be robot base, $c$ camera, $g$ tool, and $t$ board.
@@ -346,7 +395,8 @@ Every paired sample must satisfy:
 
 Here ${}^{b}T_{g}(i)$ and ${}^{c}T_{t}(i)$ are measured; ${}^{b}T_{c}$ and the rigid
 mounting transform ${}^{g}T_{t}$ are fixed unknowns unless the mounting pose is
-independently known. This guide does not supply or verify a solver executable.
+independently known. The local `solve_calibration` executable has been demonstrated in terminal logs;
+its mathematics and frame conventions have not been verified by this guide.
 Do not feed these poses into an eye-in-hand API without checking its frame
 conventions.
 
