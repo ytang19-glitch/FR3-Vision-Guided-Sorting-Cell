@@ -58,7 +58,7 @@ HOME / next object
 
 Stage 6 contains the calibration work:
 
-1. Detect the ChArUco board.
+1. Detect the measured calibration board (the current Stage 6 guide uses a plain checkerboard).
 2. Estimate `camera_T_board`.
 3. Rigidly attach the board to the FR3 end effector.
 4. Record synchronized `camera_T_board` and `base_T_tool` samples.
@@ -105,7 +105,7 @@ The point should be expressed in the D405 camera optical frame.
 Use the calibrated Stage 6 transform:
 
 ```math
-P_base = T_base_camera · P_camera
+\mathbf p_b = {}^{b}R_c\mathbf p_c + {}^{b}\mathbf t_c
 ```
 
 Publish the transformed target, for example:
@@ -216,7 +216,11 @@ Before autonomous repetition, handle at least:
 - object lost after grasp;
 - sorting-bin motion failure.
 
-The robot should return to a safe state instead of blindly continuing after a failed perception or motion step.
+Stop advancing the sequence after a failed step. Do not automatically return HOME
+or open the gripper: the arm may be near an obstacle or holding an object.
+Any recovery movement needs a separately checked plan and operator review.
+An exception or node shutdown is not proof that an active robot action has stopped;
+request cancellation and check the controller/action state.
 
 ---
 
@@ -231,6 +235,220 @@ Record quantitative results such as:
 - total cycle time.
 
 These measurements turn the project from a demonstration into an engineering experiment that can be compared and improved.
+
+---
+
+
+## Practical first milestone — one cube, one fixed destination
+
+The first Stage 7 experiment is **variable pickup, fixed placement**. Move the
+cube to different verified locations between trials; the robot obtains a new
+pickup target from vision each time. Reuse the existing saved placement poses
+before adding multiple classes or bins.
+
+This document describes the intended integration. It does not establish that
+a Stage 7 motion executable or point-transformer node is already installed,
+or that the current calibration has passed validation.
+
+### 1. Complete the calibration gate
+
+Follow [Stage 6](stage_06_calibration_tf2.md) first. For the fixed-camera,
+moving-board method, the board must be rigidly attached to the tool and move
+with it through varied positions and orientations. A board resting on the
+table while only the arm moves does not provide the required pairs.
+
+A stationary-board method is also possible when its full pose relative to
+`fr3_link0` is independently established; it requires a different calculation.
+Do not mix the two methods or use an old YAML result merely because its
+numbers are finite.
+
+Record the camera frame, base frame, calibration date, validation errors and
+the exact calibration file used. Recalibrate if the camera or its support moves.
+After moving-board calibration, remove the board before cube pickup and update
+the planning scene and tool/load configuration as appropriate.
+
+### 2. Run perception and inspect the outputs
+
+Keep the existing robot and camera drivers running. In each new terminal,
+source the environment used by the working setup:
+
+```bash
+cd /workspace/ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+```
+
+Run the localizer in its own terminal:
+
+```bash
+ros2 run fr3_vision_sorting camera_object_localizer
+```
+
+In another terminal:
+
+```bash
+ros2 run rqt_image_view rqt_image_view
+```
+
+Select `/camera_object_localizer/annotated_image`. Confirm the outline follows
+the cube, not a separate red destination label. Inspect a measurement:
+
+```bash
+ros2 topic echo /object_point_camera --once
+```
+
+Check the timestamp and frame as well as XYZ. The point represents the selected
+visible surface, not automatically the cube center or desired gripper TCP.
+
+### 3. Transform and verify without motion
+
+Once the validated calibration is connected to TF and the point-transformer
+node has been implemented and started, inspect:
+
+```bash
+ros2 run tf2_ros tf2_echo fr3_link0 camera_color_optical_frame
+```
+
+In another terminal:
+
+```bash
+ros2 topic echo /object_point_base --once
+```
+
+Use the actual frame names if they differ. Preserve the measurement timestamp
+and transform the coordinates; changing only `header.frame_id` is incorrect.
+Preserve the RealSense driver's internal TF tree rather than assigning the
+optical frame a second parent.
+
+For `p_c = [Xc, Yc, Zc]` and `p_b = [Xb, Yb, Zb]`:
+
+```math
+\mathbf p_b = {}^bR_c\mathbf p_c + {}^b\mathbf t_c
+```
+
+Both points and the translation are in metres; the rotation is dimensionless.
+A 4 × 4 homogeneous transform requires a fourth coordinate of 1.
+
+With the robot stationary, test several independently measured pickup
+locations. Record position error and stationary variation. Choose acceptance
+limits based on cube size, finger clearance and required placement accuracy;
+this guide does not assume a universal millimetre threshold.
+
+### 4. Convert a surface point into a grasp pose
+
+The robot needs a full TCP pose: position **and orientation**.
+For a fixed-orientation grasp, define a verified offset in base coordinates:
+
+```math
+\mathbf p_{grasp} = \mathbf p_{surface} + \Delta\mathbf p_{TCP}
+```
+
+The offset accounts for the detected surface, cube dimensions, desired finger
+contact height and the selected TCP. If an offset is defined in an object or
+tool frame instead, rotate it into the base frame before adding it.
+
+For a vertical approach, assuming base +Z points upward:
+
+```math
+\mathbf p_{pre} = \mathbf p_{grasp} + [0,0,h_{approach}]^T
+```
+
+```math
+\mathbf p_{lift} = \mathbf p_{grasp} + [0,0,h_{lift}]^T
+```
+
+Choose the heights from measured workspace clearance. Keep the validated
+orientation fixed during approach and lift. ROS quaternion order is
+`[x, y, z, w]`; no particular quaternion is universally a downward grasp.
+
+A center point alone does not estimate cube yaw. Initially constrain object
+orientation, or add orientation estimation before handling arbitrary rotations.
+
+### 5. Reuse existing code with a new pickup interface
+
+| Existing part | Stage 7 use |
+|---|---|
+| `camera_object_localizer.py` | Supply live camera-frame detections |
+| Proposed `object_tf_transformer.py` | Transform accepted points into the robot base frame |
+| `FixedGraspDemo` | Reuse suitable gripper/action and saved-pose functionality after checking its implementation |
+| `config/fixed_grasp/` | Keep HOME and the fixed-pickup baseline for comparison |
+| `config/fixed_pick_place/` | Reuse validated PRE_BIN, BIN and POST_BIN |
+| Proposed `vision_pick_place_demo.py` | Coordinate target validation, Cartesian pickup planning and saved placement |
+
+Changing detected XYZ does not modify saved joint-state YAML poses.
+Implement a pose-target planning interface for the dynamic pickup instead of
+calling the old saved GRASP pose and expecting it to follow the cube.
+Ensure the planner's end-effector link matches the TCP used to generate poses.
+
+`PointStamped` has no class label, orientation or confidence field. Before
+multi-class sorting, introduce a detection message or synchronized data
+structure that carries these together with target identity and timestamp.
+
+### 6. Test in stages
+
+1. Generate and display PRE_GRASP and GRASP poses in RViz without executing.
+2. Add the table, fixtures and relevant obstacles to the planning scene.
+3. Inspect a plan to PRE_GRASP; execute only that approach under supervision.
+4. Check alignment at several pickup positions before allowing descent.
+5. Test descent and retreat paths with the verified orientation and clearance.
+6. Complete one cycle with the sequence below.
+
+| Step | Required check before continuing |
+|---|---|
+| Acquire target | Fresh, finite, stable detection; correct cube; valid TF; inside workspace |
+| Freeze target for this attempt | Save target timestamp and calibration identity; do not silently replace it mid-motion |
+| PRE_GRASP | Plan succeeds and execution finishes successfully |
+| OPEN | Clearance is available and gripper action succeeds |
+| DESCEND | Collision-checked path reaches the intended grasp pose |
+| CLOSE | Width/force match the object; grasp result and physical hold are verified |
+| LIFT | Object remains held; attached-object collision geometry is represented |
+| PRE_BIN → BIN | Saved destination remains clear and reachable from the current state |
+| RELEASE | Object is supported or at the verified release height; opening succeeds |
+| POST_BIN → HOME | Retreat and return are planned and verified |
+
+If the cube moves after target acquisition, abort the current attempt and
+reacquire before descent. Do not use continuous updates as an implicit visual
+servo controller. Straight-line endpoint placement alone does not guarantee
+a straight-line executed path; verify the complete approach trajectory and
+reject incomplete Cartesian paths.
+
+### 7. Handle failures explicitly
+
+| Failure | Response |
+|---|---|
+| No detection or invalid depth | Wait for a valid target; do not reuse an indefinitely old point |
+| TF unavailable or calibration invalid | Block target execution and report the frame/calibration problem |
+| Unreachable target or failed plan | Keep the sequence stopped; revise the target or plan |
+| Grasp reports failure | Do not proceed to transport; inspect object and finger alignment |
+| Object slips or disappears during lift | Stop advancing; inspect before planning recovery |
+| Bin motion or release fails | Preserve the known grasp state and require reviewed recovery |
+
+Set explicit action timeouts, inspect terminal action results, and implement
+cancellation for an interrupted run. Do not equate destroying a ROS node with
+stopping hardware. Gripper width tolerances are not collision tolerances and
+should not be enlarged simply to make a failed grasp report success.
+
+### 8. Measure the result before adding complexity
+
+Run repeated trials across the validated pickup region using the same cube,
+lighting and placement destination. Log failed attempts as well as successes.
+
+| Measurement | Definition |
+|---|---|
+| Localization error | Euclidean distance between estimated and independently measured positions |
+| Grasp success rate | Stable successful lifts / attempted grasps |
+| Placement success rate | Objects released inside the specified destination / attempted cycles |
+| Sorting success rate | Objects delivered to the correct class destination / attempted sorting cycles |
+| Planning time | Time spent generating the motion plans, reported separately from execution |
+| Cycle time | Define a consistent start/end event and report operator waiting separately |
+| Failure category | Detection, depth, TF, planning, grasp, transport or release |
+
+Keep calibration identity, object location/class, commanded poses, action
+outcomes and timestamps in the trial record. Report typical and worst observed
+errors, not just one successful demonstration.
+
+After reliable single-cube pickup and fixed placement, add class-to-bin mapping,
+then multiple-object selection, then reviewed recovery and repeated cycles.
 
 ---
 
@@ -267,7 +485,7 @@ Stage 5
 Object localization in camera frame
         ↓
 Stage 6
-ChArUco board pose
+Calibration board pose
 camera_T_board
         ↓
 Collect camera_T_board + base_T_tool
