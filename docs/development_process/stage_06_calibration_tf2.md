@@ -14,6 +14,22 @@ deprojects the detected pixel into camera-frame XYZ, and publishes:
 /object_point_camera
 ```
 
+```bash
+
+Camera observes object
+        ↓
+Object position in camera frame
+        ↓  calibration transform
+Object position in robot-base frame
+        ↓
+Franka plans motion
+        ↓
+Robot grasps object
+```
+
+
+
+
 A representative successful result was:
 
 ```text
