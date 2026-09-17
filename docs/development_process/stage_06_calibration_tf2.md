@@ -354,9 +354,59 @@ For every sample, save:
 | ${}^{b}T_{g}$ | Tool pose relative to `fr3_link0` at the image timestamp |
 | Quality and timestamp | Evidence that the pair is usable |
 
-Use your established supervised robot controls to move to a collision-checked
-pose, stop, wait for settling, and trigger a sample save. The recorder should
-look up robot TF at the image timestamp.
+#### When to save a sample — stop, detect, then record
+
+**Save only when the real robot and attached board have stopped, and the
+camera is reliably detecting the board and publishing its pose relative to
+the camera.** A planned pose in RViz or a visible corner overlay alone is not
+enough.
+
+For each sample:
+
+1. Use RViz/MoveIt to plan and execute a collision-checked pose on the real
+   robot. Include changes in orientation as well as position across the dataset.
+2. Wait until the real robot and board have completely stopped. Allow about
+   2–3 seconds for settling; wait longer if the board is still vibrating.
+3. Check the live `/calibration_board/annotated_image`: all 54 internal corners
+   should remain clearly detected, with a consistent board origin and axes.
+4. Confirm that `/calibration_board/pose` is still publishing new messages
+   with advancing timestamps. While stationary, position and orientation
+   should remain approximately constant, without large jumps or axis flips.
+5. Press **ENTER** in the collector terminal to save one pair, and confirm
+   `Saved sample ...`. Do not count a rejected save as a collected sample.
+
+Inspect the live pose in a separate sourced terminal:
+
+```bash
+ros2 topic echo /calibration_board/pose --qos-reliability best_effort
+```
+
+The expected message is `geometry_msgs/msg/PoseStamped`, with
+`header.frame_id: camera_color_optical_frame`. Its `position` is the board
+origin expressed in camera coordinates, in metres; its `orientation` is
+the board orientation relative to that camera frame, as a quaternion
+`[x, y, z, w]`. This is ${}^{c}T_{t}$, not the board pose in the robot base.
+
+The recorder should pair this observation with robot TF at the image
+timestamp. Keep the camera fixed and the board rigidly attached to the tool
+throughout collection.
+
+#### Measurement freshness is not a time limit for moving the robot
+
+With `max_age:=1.0`, the board measurement must be no more than one second
+old **when saved**. This does not mean you must move the robot, settle and
+press ENTER within one second. You can take 20 seconds to move and then wait
+2–3 seconds, provided fresh detections continue arriving.
+
+For example, saving at 12:00:20 with a detection timestamp of 12:00:19.8 uses
+a measurement only 0.2 seconds old. A detection from 12:00:08 is 12 seconds
+old and should be rejected. The camera should keep producing new observations
+even when the board is stationary.
+
+If the collector reports `No board pose received` or `Stale or invalid board
+timestamp`, check visibility, live pose publication, timestamps and delivery
+to the collector before trying again. Increasing `max_age` merely accepts
+older data; it does not repair missing detections or incorrect pose pairing.
 
 Start with approximately 15–25 useful pose pairs, including different
 positions and tilts about multiple axes. Keep the board visible. Reserve
