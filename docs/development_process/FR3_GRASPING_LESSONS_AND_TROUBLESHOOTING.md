@@ -707,3 +707,101 @@ Lift condition:    only after result.success == True
 ```
 
 The biggest lesson is that **a grasp is a geometry-and-contact problem first, and a parameter-tuning problem second**.
+
+
+---
+
+## 17. Camera TF bridge troubleshooting
+
+During the camera-to-robot calibration test, the calibrated transform was
+published with:
+
+```text
+fr3_link0 → camera_link
+```
+
+The static publisher reported:
+
+```text
+Spinning until stopped - publishing transform
+```
+
+However, a separate `tf2_echo` initially reported:
+
+```text
+Could not find a connection between 'fr3_link0' and 'camera_link'
+because they are not part of the same tree.
+```
+
+The system also printed repeated Fast DDS messages such as:
+
+```text
+[RTPS_TRANSPORT_SHM Error]
+Failed init_port ... open_and_lock_file failed
+```
+
+These messages indicate that Fast DDS shared-memory transport could not
+initialize. The publisher can appear to be running while the transform is not
+reaching a listener in another process or container. Check that both processes
+use the same ROS 2 domain, middleware, network namespace and container.
+
+A practical diagnostic is to force UDPv4 for both the static publisher and the
+listener:
+
+**Publisher terminal:**
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+ros2 run tf2_ros static_transform_publisher \
+  --x 0.441874156577 \
+  --y -0.349579122468 \
+  --z 1.283422419775 \
+  --qx 0.438664504552 \
+  --qy -0.424338452980 \
+  --qz -0.540822789200 \
+  --qw -0.578810021035 \
+  --frame-id fr3_link0 \
+  --child-frame-id camera_link
+```
+
+Keep this terminal running. In a second terminal with the same ROS
+environment, query the direct bridge:
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+ros2 run tf2_ros tf2_echo fr3_link0 camera_link -p 9
+```
+
+A successful query prints a numeric translation and quaternion. In the
+calibration test, it printed approximately:
+
+```text
+Translation: [0.441874157, -0.349579122, 1.283422420]
+Quaternion (xyzw): [-0.438664505, 0.424338453,
+                     0.540822789, 0.578810021]
+```
+
+The quaternion may appear with all four signs reversed and still represent
+the same rotation. The direct bridge must be available before checking the
+composed transform:
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+ros2 run tf2_ros tf2_echo fr3_link0 camera_color_optical_frame -p 9
+```
+
+This composed query should be close to the calibrated
+`fr3_link0 → camera_color_optical_frame` result. Do not run two static
+publishers for the same child frame at the same time; stop the approximate
+publisher before starting the corrected one. Do not add a second parent for
+`camera_link` if another node already publishes that relationship.
+
+The repeated SHM warning is a transport diagnostic. It does not by itself
+prove that the calibration mathematics is wrong. First verify direct message
+delivery, then inspect the TF tree with:
+
+```bash
+ros2 topic info /tf_static
+ros2 run tf2_tools view_frames
+```
+
