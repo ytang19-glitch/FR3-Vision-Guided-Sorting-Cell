@@ -712,6 +712,7 @@ The biggest lesson is that **a grasp is a geometry-and-contact problem first, an
 ---
 
 ## 17. Camera TF bridge troubleshooting
+use udp   user data protocol
 
 During the camera-to-robot calibration test, the calibrated transform was
 published with:
