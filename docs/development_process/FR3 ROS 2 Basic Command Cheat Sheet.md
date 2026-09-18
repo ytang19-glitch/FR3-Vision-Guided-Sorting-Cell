@@ -2,12 +2,17 @@
 
 This document contains the most frequently used ROS 2 commands for the FR3 fixed-position grasping and pick-and-place project.
 
+Tcp pose check:
+
 ---
+ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
+```
+
 
 # 1. Enter the Docker Container
 
 ```bash
-docker exec -it fr3_vision_sorting bash
+docker exec -it (docker ps result)  bash
 ```
 
 ---
