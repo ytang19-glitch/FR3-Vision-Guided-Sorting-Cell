@@ -1,5 +1,13 @@
 # Stage 6 — Camera-to-FR3 Calibration and TF2
 
+### Ready state:
+```bash
+ros2 launch franka_fr3_moveit_config moveit.launch.py \
+  robot_ip:=172.16.0.2 \
+  use_fake_hardware:=false
+```
+
+
 ## Objective and current confirmed setup
 
 The Intel RealSense D405 is mounted on a fixed overhead support, separate from
