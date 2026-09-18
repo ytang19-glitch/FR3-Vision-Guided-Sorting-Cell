@@ -452,6 +452,222 @@ then multiple-object selection, then reviewed recovery and repeated cycles.
 
 ---
 
+
+## Practical debugging and code map (2026-09-18)
+
+### Repository code versus the local experiment
+
+The repository currently contains the fixed-grasp and fixed-pick-and-place
+implementations linked below. The working robot-PC experiment also uses
+`vision_pick_place_demo.py`, `camera_object_localizer.py` and
+`gripper_control.py`; these files are not present in the repository snapshot
+reviewed for this update. The vision function names below describe the local
+one-shot version discussed during debugging, not an implementation installed
+automatically by cloning this repository.
+
+A separate `object_tf_transformer.py` and `/object_point_base` publisher are
+optional architecture choices. The local vision demo transforms the point
+internally; do not wait for `/object_point_base` unless a node actually publishes it.
+
+### Which file and function should I read?
+
+Python module paths below are relative to
+`ros2_ws/src/fr3_vision_sorting/fr3_vision_sorting/`.
+
+| File | Function / class | Purpose |
+|---|---|---|
+| `camera_object_localizer.py` (local) | Image/depth processing callbacks; inspect the installed implementation for their names | Detect the cube, obtain valid depth, and publish `PointStamped` on `/object_point_camera`. It does not command the arm. |
+| `vision_pick_place_demo.py` (local) | `object_callback()` | Reject unusable measurements, accumulate the detection window and freeze the accepted target. Ignore new detections after locking. |
+| Same file | `transform_object_point()` | Look up base-from-camera TF and transform the measured point into `fr3_link0`. |
+| Same file | `current_tcp_orientation()` | Read the TCP orientation relative to the base. Keeping the current orientation does not automatically choose a suitable grasp orientation. |
+| Same file | `move_to_cartesian_pose()` | In the reviewed local version, build a MoveIt **pose goal** for the TCP. Its name does not guarantee a straight Cartesian path. |
+| Same file | `execute_vision_sequence()` | Generate pickup targets, handle preview/START confirmation, run pickup, then the saved placement sequence. |
+| Same file | `main()` | Own node initialization, acquisition and execution scheduling. The corrected one-shot design executes the sequence outside the acquisition callback. |
+| [`fixed_grasp_demo.py`](../../ros2_ws/src/fr3_vision_sorting/fr3_vision_sorting/fixed_grasp_demo.py) | `FixedGraspDemo.__init__()` | Create MoveIt/grasp action clients and load HOME, PRE_GRASP, GRASP and LIFT YAML files. |
+| Same file | `load_joint_state()` | Read YAML, map names to positions and return the seven arm joints in the required order. |
+| Same file | `move_to(pose_name)` | Plan and execute a saved **joint target**, such as BIN. |
+| Same file | `close_on_object()` | Send the Franka Grasp action and check its reported success. |
+| `gripper_control.py` (local dependency) | `GripperController.open_gripper()` | Request gripper opening; inspect that implementation for its action and executor handling. |
+| [`fixed_pick_place_demo.py`](../../ros2_ws/src/fr3_vision_sorting/fr3_vision_sorting/fixed_pick_place_demo.py) | `add_bin_poses()`, `run_motion()`, `main()` | Load placement poses and run the fixed sequence with per-step confirmation. |
+| [`automatic_pick_place_demo.py`](../../ros2_ws/src/fr3_vision_sorting/fr3_vision_sorting/automatic_pick_place_demo.py) | `add_bin_poses()`, `run_automatic_cycle()` | Run a fixed-position cycle after one confirmation. “Automatic” here does **not** mean camera-guided. |
+
+### Why did we collect PRE_GRASP and GRASP YAML?
+
+The saved files contain joint configurations, not camera measurements and not
+calibration transforms. They established a repeatable fixed-position baseline:
+first verify arm motion, finger alignment, gripping and placement at known
+locations; then replace the pickup location with vision.
+
+| Saved file | Fixed-position experiment | Local vision-guided experiment |
+|---|---|---|
+| `config/fixed_grasp/home_joint_state.yaml` | Recorded HOME configuration | Reusable return configuration when the route is checked |
+| `config/fixed_grasp/pre_grasp_joint_state.yaml` | Arm configuration above the original cube | Baseline/reference; dynamic PRE_GRASP is generated above the newly detected cube |
+| `config/fixed_grasp/grasp_joint_state.yaml` | Arm configuration with fingers aligned to the original cube | Baseline/reference; dynamic GRASP replaces this pickup target |
+| `config/fixed_grasp/lift_joint_state.yaml` | Lift configuration above the original pickup | Baseline/reference; dynamic LIFT is generated from the new grasp target |
+| `config/fixed_pick_place/pre_bin_joint_state.yaml` | Approach configuration near the destination | Still used by `move_to("PRE_BIN")` |
+| `config/fixed_pick_place/bin_joint_state.yaml` | Release configuration | Still used by `move_to("BIN")` |
+| `config/fixed_pick_place/post_bin_joint_state.yaml` | Retreat configuration | Still used by `move_to("POST_BIN")` |
+
+**Loaded is not the same as executed.** A vision subclass calling
+`FixedGraspDemo.__init__()` still loads all four fixed-grasp files. Deleting
+PRE_GRASP/GRASP/LIFT YAML can therefore prevent startup even if the vision
+sequence never calls those saved pickup targets.
+
+The current base loader reads the last dictionary document in the YAML,
+matches joint names and uses only `fr3_joint1` through `fr3_joint7`.
+Finger positions, recorded velocities, efforts and timestamps do not become
+arm motion commands. Joint angles are in radians. The planner generates a
+new trajectory; this is not replay of the original recorded movement.
+
+To tell which target is actually executed, inspect the call:
+
+```python
+self.move_to("GRASP")  # Uses the original saved joint configuration.
+
+self.move_to_cartesian_pose(
+    x, y, grasp_z, orientation, "GRASP"
+)  # Uses a generated TCP pose; "GRASP" is the stage label.
+```
+
+Do not change old pickup YAML expecting the camera target to move. Conversely,
+moving the cube does not update saved joint configurations.
+
+### Meaning of PRE_GRASP, GRASP and LIFT
+
+- **PRE_GRASP:** a checked approach pose above the pickup, providing clearance
+  before the final descent.
+- **GRASP:** the TCP pose that places the fingers at the intended contact
+  height. Reaching it does not close the fingers; that is a separate action.
+- **LIFT:** a clearance pose after successful closure, before transport.
+
+In the local version used during this experiment, the formulas are:
+
+```python
+pre_grasp_z = object_z + self.pre_grasp_offset
+grasp_z = object_z + self.grasp_offset
+lift_z = grasp_z + self.lift_offset
+```
+
+Thus the pre-grasp-to-grasp separation is
+`pre_grasp_offset - grasp_offset`, not simply `pre_grasp_offset`.
+For the previously logged offsets 0.120, 0.025 and 0.150 m, that separation
+is 0.095 m. These are experiment values, not universal grasp settings.
+
+The camera point is typically on a visible surface. Select offsets using
+the actual TCP, finger geometry and object dimensions. A point supplies no
+orientation; use a separately verified orientation policy.
+
+### Debug from perception to execution
+
+Use the last successful log to locate the failing stage rather than changing
+several parameters at once.
+
+| Symptom / last log | What it tells you | Next check |
+|---|---|---|
+| `NO RED TARGET` | No usable color target in the current view | Check occlusion, lighting, selected object and detector output. |
+| `INVALID DEPTH` | Color detection did not produce a usable depth sample | Check aligned depth, matching intrinsics, units and valid pixels in the target region. Never replace missing depth with an arbitrary distance. |
+| Detection repeatedly resets to 1/10 | The local acceptance window is restarting | Log the reset reason, freshness and XYZ variation. Depth variation may exceed the stability threshold; inspect it before changing the threshold. |
+| `Target frozen` | Acquisition is complete | Do not move the cube. New camera detections should not overwrite the accepted target. |
+| `two or more unconnected trees` | This listener cannot resolve base-to-camera TF | Follow the [Stage 06 CV Issues recovery](stage_06_CV_ISSUES.md); check both bridge and complete chain. |
+| No attribute `tf_buffer` | Python initialization problem | Initialize the buffer and keep its listener alive before using it. |
+| `PointStamped ... not loaded or supported` | Missing Python TF conversion registration | Import `tf2_geometry_msgs` when using registered transforms, or use explicit `do_transform_point(point, transform)` after lookup. |
+| `PREVIEW ONLY` | Coordinate preview intentionally sends no motion commands | Review targets. Preview is not a motion-plan/collision check. |
+| START accepted, then detection restarts | Sequence returned or reset early | Check indentation, unconditional `return`, exceptions and the `finally` reset logic. |
+| `No keyboard input` / immediate cancellation | Confirmation input is unavailable or wrong | Use an interactive `ros2 run` terminal for this version and type START + Enter. |
+| `Executor is already spinning` | Conflicting/nested executor use | Inspect `main()` and action waits; avoid spinning the same node from a worker while another executor already spins it. |
+| Waiting for `/move_action` or gripper server | Required action server is unavailable to this node | Check the existing bringup, action list and environment. Avoid launching duplicate bringups. |
+| MoveIt goal rejected / execution failed | Acquisition succeeded; motion did not | Read the MoveIt result, controller status, start state, reachability and collision scene. Do not advance to the next stage. |
+| Pickup works, placement orientation is awkward | Placement is a separate set of targets | Inspect LIFT → PRE_BIN and the saved BIN configurations, not only camera calibration. |
+
+Camera occlusion **after** target locking does not itself require continuous
+redetection in this one-shot design. Continuing with the frozen target assumes
+the cube has not moved. Occlusion before acquisition prevents a valid target.
+
+### Read-only checks and preview
+
+Keep the existing robot/camera drivers and calibrated static publisher running.
+In the diagnostic/vision terminal use the environment that restored this setup:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source /opt/franka_ros2_ws/install/setup.bash
+source /workspace/ros2_ws/install/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+```
+
+Run these checks individually:
+
+```bash
+ros2 topic echo /object_point_camera --once
+ros2 run tf2_ros tf2_echo fr3_link0 camera_color_optical_frame
+ros2 action list -t
+ros2 control list_controllers
+ros2 pkg executables fr3_vision_sorting
+```
+
+Stop the continuous TF query before entering the next command in that terminal.
+A discovered action name alone does not confirm a functioning controller.
+
+If the local vision executable is installed:
+
+```bash
+ros2 run fr3_vision_sorting vision_pick_place_demo \
+  --ros-args -p preview_only:=true
+```
+
+Check the transformed point, all generated target heights and the TCP
+quaternion. The one-shot version ends after preview; restart to reacquire.
+Setting `preview_only:=false` and confirming START requests the **full**
+pick-and-place sequence, not only PRE_GRASP.
+
+### Editing code or saved poses
+
+Edit source files under `/workspace/ros2_ws/src/fr3_vision_sorting/`, not the
+generated `build/` or `install/` copies. After changing code, entry points
+or installed configuration:
+
+```bash
+cd /workspace/ros2_ws
+colcon build --packages-select fr3_vision_sorting --symlink-install
+source install/setup.bash
+```
+
+Check which files the terminal actually imports:
+
+```bash
+python3 -c 'import fr3_vision_sorting.vision_pick_place_demo as m; print(m.__file__)'
+ros2 pkg prefix --share fr3_vision_sorting
+```
+
+The base loader uses the installed package share directory for YAML. Ensure
+`setup.py` installs the relevant configuration files. A missing file may
+therefore be an installation issue rather than a motion-planning failure.
+The inherited logger name `fixed_grasp_demo` alone does not prove an old
+vision executable is running.
+
+### Why a saved BIN pose can look strange
+
+A saved joint target fixes the whole arm configuration, including wrist and
+elbow posture. It does not automatically preserve the pickup TCP orientation.
+Read `move_to("PRE_BIN")`, `move_to("BIN")` and `move_to("POST_BIN")` to
+identify which saved configurations control placement.
+
+Compare the TCP poses of LIFT, PRE_BIN, BIN and POST_BIN using the actual FR3
+model/forward kinematics, and inspect the planned transitions. If the
+destination or desired orientation changed, reteach and validate the affected
+poses. Do not adjust one wrist joint blindly.
+
+Also, a prompt saying “descend vertically” does not enforce vertical motion.
+The committed `move_to()` uses joint goals; the local
+`move_to_cartesian_pose()` uses pose goals. Neither by itself guarantees a
+straight line or fixed orientation along the entire path. For controlled
+descent/retreat, implement and verify an appropriate Cartesian path, reject
+incomplete paths, and check collision clearance.
+
+
+---
+
 ## Stage 7 success condition
 
 Stage 7 is successful when the system can repeatedly perform:
