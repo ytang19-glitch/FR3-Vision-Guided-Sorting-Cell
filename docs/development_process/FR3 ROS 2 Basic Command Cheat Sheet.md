@@ -5,6 +5,8 @@ This document contains the most frequently used ROS 2 commands for the FR3 fixed
 Tcp pose check:
 
 ---
+
+```
 ros2 run tf2_ros tf2_echo fr3_link0 fr3_hand_tcp
 ```
 
