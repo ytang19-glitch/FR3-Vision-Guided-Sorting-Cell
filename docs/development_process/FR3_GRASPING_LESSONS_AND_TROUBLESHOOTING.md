@@ -1,5 +1,45 @@
 # FR3 Grasping Lessons and Troubleshooting
 
+The error is indentation. Your return after except EOFError is outside the except block, so the function returns every time—even when you type START.
+
+Replace everything from print(...) through gripper = GripperController() with:
+
+            print(
+                "Type START to execute pick and place: ",
+                flush=True,
+            )
+
+            try:
+                answer = input().strip().upper()
+
+                self.get_logger().info(
+                    f"Received command: {answer!r}"
+                )
+
+            except EOFError:
+                self.get_logger().error(
+                    "No keyboard input. Run with ros2 run."
+                )
+                return  # This must be inside except
+
+            if answer != "START":
+                self.get_logger().warning(
+                    f"Operation cancelled. Received: {answer!r}"
+                )
+                return
+
+            # This line is reached only after typing START.
+            gripper = GripperController()
+
+
+
+
+
+
+
+
+
+
 This note records the most important lessons learned while developing the fixed-position FR3 grasping workflow.
 
 The main lesson is that a successful grasp is not determined by the gripper command alone. The **robot pose**, **gripper opening**, **object placement**, **grasp tolerance parameters**, and **action result handling** all work together.
