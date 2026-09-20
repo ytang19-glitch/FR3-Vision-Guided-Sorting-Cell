@@ -136,6 +136,21 @@ ros2_ws/src/fr3_vision_sorting/
 ├── setup.cfg
 └── setup.py
 ```
+## Experiment demonstration Demonstration and Learning Objectives
+
+This experiment demonstrates how computer vision can be integrated with a robotic system to perform vision-guided pick-and-place tasks. Through this project, we learn the practical application of RGB-D perception, object localization, coordinate transformations, motion planning, and robot control.
+
+The experiment also establishes a reusable foundation for future research involving nonlinear model predictive control (NMPC), closed-loop visual feedback, advanced grasping strategies, and intelligent robotic manipulation.
+
+The following video demonstrates vision-guided pick-and-place using the Franka FR3:
+
+https://github.com/user-attachments/assets/59d45c74-4ab9-48d0-bfee-23b327ca67a9
+
+
+https://github.com/user-attachments/assets/b543e17b-9f06-4ac1-9962-d48165f493a5
+
+
+
 
 ## Installation option A — Docker (recommended)
 
