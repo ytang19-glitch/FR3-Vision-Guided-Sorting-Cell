@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     usbutils \
     v4l-utils \
     python3-opencv \
+    python3-scipy \
     python3-pip \
     python3-colcon-common-extensions \
     python3-rosdep \
@@ -29,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-moveit-py \
     ros-jazzy-ros-gz \
     ros-jazzy-realsense2-camera \
+    ros-jazzy-franka-msgs \
     ros-jazzy-realsense2-description \
     && rm -rf /var/lib/apt/lists/*
 
