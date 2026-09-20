@@ -142,11 +142,40 @@ This experiment demonstrates how computer vision can be integrated with a roboti
 
 The experiment also establishes a reusable foundation for future research involving nonlinear model predictive control (NMPC), closed-loop visual feedback, advanced grasping strategies, and intelligent robotic manipulation.
 
-The following video demonstrates vision-guided pick-and-place using the Franka FR3:
+### Video 1 — Initial Vision-Guided Pick-and-Place
 
+This experiment demonstrates the initial integration of the RealSense camera
+and the Franka FR3. The system detects the target object, transforms its
+position from the camera frame to the robot base frame, and executes a
+pick-and-place motion.
+
+**Purpose:**
+
+- Validate the camera-to-robot calibration.
+- Test object localization and TF2 transformations.
+- Verify basic grasping and motion planning.
+- Establish a baseline for later experiments.
+
+VIDEO_1_URL:
 https://github.com/user-attachments/assets/59d45c74-4ab9-48d0-bfee-23b327ca67a9
 
 
+
+
+### Video 2 — Pick-and-Place After Changing the Object Position
+
+In this experiment, the object is moved to a different position. The robot
+uses updated camera data to locate the object and successfully perform the
+pick-and-place task again.
+
+**Purpose:**
+
+- Demonstrate that the motion is based on vision rather than a fixed position.
+- Evaluate the repeatability of object localization.
+- Test the robustness of the perception and motion-planning pipeline.
+- Identify failures caused by singularities, friction, or grasp uncertainty.
+
+VIDEO_2:_URL
 https://github.com/user-attachments/assets/b543e17b-9f06-4ac1-9962-d48165f493a5
 
 
