@@ -83,14 +83,14 @@ The first implementation uses simple colored objects because this makes every su
 | Docker environment | ✅ Added | Image definition, Compose configuration, USB and GUI setup |
 | FR3 project roadmap | ✅ Added | Full simulation-to-real workflow documented |
 | Relevant research papers | ✅ Added | Project-related papers collected |
-| RealSense hardware detection | 🔄 Testing | Camera appears in `lsusb` and `rs-enumerate-devices` |
-| RGB/depth ROS topics | ⬜ Planned | Color, aligned depth, CameraInfo and point cloud available |
-| Fixed-coordinate MoveIt grasp | ⬜ Planned | Ten successful simulated cycles |
-| OpenCV object detection | ⬜ Planned | Stable class and center-pixel output |
-| 3D localization and TF2 | ⬜ Planned | RViz marker appears on the physical object |
-| Gazebo sorting cell | ⬜ Planned | Thirty successful simulated sorting cycles |
-| RealSense hand-eye calibration | ⬜ Planned | Mean localization error below 10 mm |
-| Real FR3 sorting | ⬜ Planned | Safe low-speed sorting of three objects |
+| RealSense hardware detection | ✅ Added | Camera appears in `lsusb` and `rs-enumerate-devices` |
+| RGB/depth ROS topics | ✅ Added| Color, aligned depth, CameraInfo and point cloud available |
+| Fixed-coordinate MoveIt grasp | ✅ Added | Ten successful simulated cycles |
+| OpenCV object detection | ✅ Added | Stable class and center-pixel output |
+| 3D localization and TF2 | ✅ Added | RViz marker appears on the physical object |
+| Gazebo sorting cell | ✅ Added | Thirty successful simulated sorting cycles |
+| RealSense hand-eye calibration | ✅ Added| Mean localization error below 10 mm |
+| Real FR3 sorting |  ✅ Added | Safe low-speed sorting of three objects |
 
 ## Repository structure
 
