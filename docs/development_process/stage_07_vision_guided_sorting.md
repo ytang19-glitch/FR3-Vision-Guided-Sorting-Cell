@@ -615,6 +615,20 @@ If the local vision executable is installed:
 ros2 run fr3_vision_sorting vision_pick_place_demo \
   --ros-args -p preview_only:=true
 ```
+Practical Tips:
+```bash
+Measure tcp_to_fingertip accurately; do not guess it.
+Keep at least 20 mm fingertip clearance from the table.
+Check that grasp_offset places the TCP above the calculated minimum height.
+Run with preview_only:=true before real execution.
+Use stop_after_pre_grasp:=true for the first physical test.
+Set geometry_confirmed:=true only after checking the gripper, table, TCP, and workspace.
+Keep the emergency stop accessible during every experiment.
+```
+Run:
+```bash
+ros2 run fr3_vision_sorting vision_pick_place_demo --ros-args   -p tcp_to_fingertip:=0.056   -p fingertip_clearance:=0.020   -p grasp_offset:=0.080   -p preview_only:=false   -p geometry_confirmed:=true   -p stop_after_pre_grasp:=false
+```
 
 Check the transformed point, all generated target heights and the TCP
 quaternion. The one-shot version ends after preview; restart to reacquire.
